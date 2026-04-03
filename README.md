@@ -2,7 +2,7 @@
 
 **Sandboxed AI coding agent powered by [OpenCode](https://opencode.ai), running in a rootful Podman container with file system isolation and automatic change tracking.**
 
-cont-AI-nerd provides a secure, containerized environment for running an AI coding assistant that can read and write files in your project directories while maintaining strict isolation from the rest of your system.
+cont[AI]*nerd* provides a secure, containerized environment for running an AI coding assistant that can read and write files in your project directories while maintaining strict isolation from the rest of your system.
 
 ---
 
@@ -36,7 +36,7 @@ cont-AI-nerd provides a secure, containerized environment for running an AI codi
 
 ## Overview
 
-cont-AI-nerd creates a sandboxed environment where an AI coding agent (OpenCode) can:
+cont[AI]*nerd* creates a sandboxed environment where an AI coding agent (OpenCode) can:
 
 - **Read and modify files** in designated project directories
 - **Run in isolation** from your host system
@@ -127,7 +127,7 @@ cont-AI-nerd creates a sandboxed environment where an AI coding agent (OpenCode)
 
 ## Prerequisites
 
-Before installing cont-AI-nerd, ensure your system meets the following requirements:
+Before installing cont[AI]*nerd*, ensure your system meets the following requirements:
 
 ### Required
 
@@ -421,7 +421,7 @@ sudo ./scripts/setup.sh
 
 ### Container Isolation
 
-cont-AI-nerd uses rootful Podman to create a container that:
+cont[AI]*nerd* uses rootful Podman to create a container that:
 
 - **Maps UIDs 1:1** — The `agent` user inside the container has the same UID as the host `agent` user
 - **Uses host networking** — Simplifies access; server binds to localhost only
@@ -504,7 +504,7 @@ The script applies the following rules:
 
 ### Systemd Services
 
-cont-AI-nerd installs three systemd components:
+cont[AI]*nerd* installs three systemd components:
 
 | Component | Type | Purpose |
 |-----------|------|---------|
@@ -688,7 +688,7 @@ The container is limited to 2GB RAM. To increase:
 
 ## Uninstallation
 
-To completely remove cont-AI-nerd:
+To completely remove cont[AI]*nerd*:
 
 ```bash
 # Stop and disable services
@@ -819,6 +819,6 @@ See [LICENSE](LICENSE) for the full license text.
 
 ## Acknowledgments
 
-- [OpenCode](https://opencode.ai) — The AI coding agent powering cont-AI-nerd
+- [OpenCode](https://opencode.ai) — The AI coding agent powering cont[AI]*nerd*
 - [Podman](https://podman.io) — Daemonless container engine
 - [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) — Systemd integration for Podman
