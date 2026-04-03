@@ -168,6 +168,10 @@ sudo apt install podman jq inotify-tools
 sudo pacman -S podman jq inotify-tools
 ```
 
+**NixOS:**
+
+See [nix/README.md](nix/README.md) for the declarative NixOS flake module.
+
 ---
 
 ## Installation
@@ -247,7 +251,7 @@ cat > ~/.config/cont-ai-nerd/config.json << 'EOF'
   "install_dir": "/opt/cont-ai-nerd"
 }
 EOF
-chmod 600 ~/.config/cont-ai-nerd/config.json
+chmod 640 ~/.config/cont-ai-nerd/config.json
 ```
 
 ### Step 3: Setup

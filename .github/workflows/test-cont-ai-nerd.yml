@@ -90,7 +90,7 @@ jobs:
 
           echo "--- Checking config file permissions ---"
           MODE=$(stat -c '%a' "$CONFIG")
-          [[ "$MODE" == "600" ]] || { echo "FAIL: mode=$MODE expected=600"; exit 1; }
+          [[ "$MODE" == "640" ]] || { echo "FAIL: mode=$MODE expected=640"; exit 1; }
 
           echo "--- Checking config content ---"
           jq -e '.primary_user' "$CONFIG" > /dev/null
