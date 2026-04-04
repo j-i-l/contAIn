@@ -492,6 +492,68 @@ jobs:
           echo ""
           echo "PASS: write permission model"
 
+      # ── 10b. Debug UID/GID behavior ─────────────────────────
+      - name: "Debug: UID/GID in container"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          AI_GID=$(getent group ai | cut -d: -f3)
+
+          echo "=== Host user info ==="
+          echo "    agent UID: $AGENT_UID"
+          echo "    ai GID: $AI_GID"
+          echo "    runner UID: $(id -u runner)"
+          echo ""
+
+          echo "=== Container user info ==="
+          echo "--- podman inspect (User field) ---"
+          sudo podman inspect cont-ai-nerd --format '{{.Config.User}}' || true
+          echo ""
+
+          echo "--- id inside container (default exec user) ---"
+          sudo podman exec cont-ai-nerd id || true
+          echo ""
+
+          echo "--- id inside container (explicit --user) ---"
+          sudo podman exec --user ${AGENT_UID}:${AI_GID} cont-ai-nerd id || true
+          echo ""
+
+          echo "=== Test file creation ==="
+          TEST_DIR="$HOME/Projects"
+
+          echo "--- Creating file via podman exec (no --user flag) ---"
+          sudo podman exec cont-ai-nerd touch /workspace/Projects/debug_test_1
+          ls -ln "$TEST_DIR/debug_test_1" || true
+          stat -c 'UID=%u GID=%g' "$TEST_DIR/debug_test_1" || true
+          echo ""
+
+          echo "--- Creating file via podman exec (with --user flag) ---"
+          sudo podman exec --user ${AGENT_UID}:${AI_GID} cont-ai-nerd touch /workspace/Projects/debug_test_2
+          ls -ln "$TEST_DIR/debug_test_2" || true
+          stat -c 'UID=%u GID=%g' "$TEST_DIR/debug_test_2" || true
+          echo ""
+
+          echo "=== Mount info ==="
+          echo "--- podman inspect mounts ---"
+          sudo podman inspect cont-ai-nerd --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Mode}}){{println}}{{end}}' || true
+          echo ""
+
+          echo "=== User namespace mapping ==="
+          echo "--- podman inspect userns ---"
+          sudo podman inspect cont-ai-nerd --format 'UsernsMode={{.HostConfig.UsernsMode}}' || true
+          echo ""
+
+          echo "--- /proc/self/uid_map inside container ---"
+          sudo podman exec cont-ai-nerd cat /proc/self/uid_map || true
+          echo ""
+
+          echo "=== Quadlet User/Group config ==="
+          grep -E '^User=|^Group=' /etc/containers/systemd/cont-ai-nerd.container || true
+          echo ""
+
+          echo "=== Cleanup ==="
+          rm -f "$TEST_DIR/debug_test_1" "$TEST_DIR/debug_test_2" || true
+
       # ── 11. Test inotify watcher ───────────────────────────
       - name: "Test: inotify watcher (file ownership reassignment)"
         run: |
