@@ -339,11 +339,11 @@ in {
       # Build / rebuild the container image when needed.
       cont-ai-nerd-image = {
         text = ''
-          CONTAINERFILE_SRC="${../container/Containerfile}"
+          CONTAINER_DIR="${../container}"
           HASH_FILE="/var/lib/cont-ai-nerd/containerfile.sha256"
           mkdir -p /var/lib/cont-ai-nerd
 
-          CURRENT_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONTAINERFILE_SRC" | cut -d' ' -f1)
+          CURRENT_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1)
           STORED_HASH=""
           if [ -f "$HASH_FILE" ]; then
             STORED_HASH=$(cat "$HASH_FILE")
@@ -361,8 +361,8 @@ in {
               --build-arg "AGENT_GID=$AGENT_GID" \
               --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
               -t localhost/cont-ai-nerd:latest \
-              -f "$CONTAINERFILE_SRC" \
-              "$(dirname "$CONTAINERFILE_SRC")"
+              -f "$CONTAINER_DIR/Containerfile" \
+              "$CONTAINER_DIR"
 
             echo "$CURRENT_HASH" > "$HASH_FILE"
             echo "cont-ai-nerd: image built successfully."
