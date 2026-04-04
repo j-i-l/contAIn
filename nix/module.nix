@@ -41,10 +41,15 @@ let
 
   # Convert a host path to its container-side equivalent under /workspace
   getContainerPath = hostPath:
-    let
-      suffix = lib.removePrefix commonParent hostPath;
-      cleanSuffix = if lib.hasPrefix "/" suffix then suffix else "/" + suffix;
-    in "/workspace" + cleanSuffix;
+    if hostPath == commonParent then
+      # Single path case: hostPath equals commonParent, use basename
+      # e.g., /home/alice/Projects → /workspace/Projects
+      "/workspace/${builtins.baseNameOf hostPath}"
+    else
+      let
+        suffix = lib.removePrefix commonParent hostPath;
+        cleanSuffix = if lib.hasPrefix "/" suffix then suffix else "/" + suffix;
+      in "/workspace" + cleanSuffix;
 
   # Map of host paths to container paths
   containerPaths = lib.listToAttrs (map (p: 

@@ -95,6 +95,10 @@ get_container_path() {
   if [[ "$common_parent" == "/" ]]; then
     # No common parent other than root — use full path under /workspace
     echo "/workspace${host_path}"
+  elif [[ "$host_path" == "$common_parent" ]]; then
+    # Single path case: host_path equals common_parent, use basename
+    # e.g., /home/alice/Projects → /workspace/Projects
+    echo "/workspace/$(basename "$host_path")"
   else
     # Strip the common parent to get the unique suffix
     local suffix="${host_path#"$common_parent"}"
