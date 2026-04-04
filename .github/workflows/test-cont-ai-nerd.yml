@@ -157,8 +157,8 @@ jobs:
           MODE=$(stat -c '%a' "$POLICY")
           [[ "$OWNER" == "$USER" ]] || \
             { echo "FAIL: owner=$OWNER expected=$USER"; exit 1; }
-          [[ "$MODE" == "644" ]] || \
-            { echo "FAIL: mode=$MODE expected=644"; exit 1; }
+          [[ "$MODE" == "640" ]] || \
+            { echo "FAIL: mode=$MODE expected=640"; exit 1; }
 
           echo "--- Policy file contents ---"
           cat "$POLICY"
