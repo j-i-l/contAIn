@@ -23,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Example: --build-arg EXTRA_PACKAGES="ripgrep fd-find python3"
 ARG EXTRA_PACKAGES=""
 RUN if [ -n "$EXTRA_PACKAGES" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends $EXTRA_PACKAGES \
+      apt-get update \
+      && echo "$EXTRA_PACKAGES" | xargs apt-get install -y --no-install-recommends \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
