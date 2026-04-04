@@ -455,6 +455,16 @@ jobs:
           TEST_FILE="$PROJECT/watcher_test_file"
           CONTAINER_TEST_FILE="${WORKSPACE}/watcher_test_file"
 
+          echo "--- Verifying container is running ---"
+          if ! sudo podman ps --filter name=cont-ai-nerd --format '{{.Names}}' | grep -q '^cont-ai-nerd$'; then
+            echo "FAIL: cont-ai-nerd container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs cont-ai-nerd 2>&1 | tail -50 || true
+            echo "--- systemctl status ---"
+            systemctl status cont-ai-nerd.service --no-pager 2>&1 || true
+            exit 1
+          fi
+
           echo "--- Creating file as agent user via podman exec ---"
           # This reflects actual production behavior: agent creates files
           # inside the container, which appear on the host via bind mount.
@@ -504,6 +514,14 @@ jobs:
           AGENT_UID=$(id -u agent)
           TEST_DIR="$PROJECT/watcher_test_dir"
           CONTAINER_TEST_DIR="${WORKSPACE}/watcher_test_dir"
+
+          echo "--- Verifying container is running ---"
+          if ! sudo podman ps --filter name=cont-ai-nerd --format '{{.Names}}' | grep -q '^cont-ai-nerd$'; then
+            echo "FAIL: cont-ai-nerd container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs cont-ai-nerd 2>&1 | tail -50 || true
+            exit 1
+          fi
 
           echo "--- Creating directory as agent user via podman exec ---"
           sudo podman exec cont-ai-nerd mkdir "$CONTAINER_TEST_DIR"
