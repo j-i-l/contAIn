@@ -492,7 +492,121 @@ jobs:
           echo ""
           echo "PASS: write permission model"
 
-      # ── 10b. Debug UID/GID behavior ─────────────────────────
+      # ── 10a. Test agent cannot change permissions ───────────
+      - name: "Test: agent cannot chmod/chown files"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          AI_GID=$(getent group ai | cut -d: -f3)
+
+          echo "--- Testing chmod on 600 file (expect: BLOCKED) ---"
+          # Agent should not be able to chmod a file it doesn't own
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/cont-ai-nerd:latest \
+            666 "${WORKSPACE}/file_600" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod 600 file"
+            exit 1
+          else
+            echo "PASS: chmod on 600 correctly blocked"
+          fi
+
+          # Verify permissions unchanged
+          PERMS=$(stat -c '%a' "$PROJECT/file_600")
+          [[ "$PERMS" == "600" ]] || \
+            { echo "FAIL: file_600 perms changed to $PERMS"; exit 1; }
+          echo "PASS: file_600 perms unchanged ($PERMS)"
+
+          echo "--- Testing chmod on 660 file owned by user (expect: BLOCKED) ---"
+          # Even for group-writable files, agent shouldn't be able to chmod
+          # because it's not the owner
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/cont-ai-nerd:latest \
+            777 "${WORKSPACE}/file_660" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod file it doesn't own"
+            exit 1
+          else
+            echo "PASS: chmod on 660 correctly blocked (not owner)"
+          fi
+
+          echo "--- Testing chown (expect: BLOCKED) ---"
+          # Agent should never be able to chown
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chown \
+            localhost/cont-ai-nerd:latest \
+            "${AGENT_UID}:${AI_GID}" "${WORKSPACE}/file_600" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chown"
+            exit 1
+          else
+            echo "PASS: chown correctly blocked"
+          fi
+
+          echo ""
+          echo "PASS: agent cannot change permissions"
+
+      # ── 10b. Test 600 file with group ai ─────────────────────
+      - name: "Test: agent blocked from 600 file even with group ai"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          AI_GID=$(getent group ai | cut -d: -f3)
+
+          # Create file: 600, owner=runner, group=ai
+          # This tests that 600 means NO group access, even if group is 'ai'
+          echo "secret-content" | sudo tee "$PROJECT/secret_600_ai" > /dev/null
+          sudo chown "$USER:ai" "$PROJECT/secret_600_ai"
+          sudo chmod 600 "$PROJECT/secret_600_ai"
+
+          echo "--- File setup ---"
+          ls -la "$PROJECT/secret_600_ai"
+
+          echo "--- Test 1: Agent tries to read (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint cat \
+            localhost/cont-ai-nerd:latest \
+            "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read 600 file"
+            exit 1
+          else
+            echo "PASS: agent blocked from reading 600 file"
+          fi
+
+          echo "--- Test 2: Agent tries to chmod (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/cont-ai-nerd:latest \
+            660 "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod"
+            exit 1
+          else
+            echo "PASS: agent blocked from chmod"
+          fi
+
+          echo "--- Verify permissions unchanged ---"
+          PERMS=$(stat -c '%a' "$PROJECT/secret_600_ai")
+          [[ "$PERMS" == "600" ]] || \
+            { echo "FAIL: permissions changed to $PERMS"; exit 1; }
+          echo "PASS: permissions unchanged (600)"
+
+          echo ""
+          echo "PASS: 600 file with group ai properly protected"
+
+      # ── 10c. Debug UID/GID behavior ─────────────────────────
       - name: "Debug: UID/GID in container"
         run: |
           set -euo pipefail
@@ -746,6 +860,52 @@ jobs:
 
           echo ""
           echo "PASS: read-only mounts"
+
+      # ── 14a. Debug prepare-permissions.sh ────────────────────
+      - name: "Debug: prepare-permissions.sh behavior"
+        run: |
+          set -euo pipefail
+
+          echo "=== Bash version ==="
+          bash --version
+
+          echo ""
+          echo "=== Test minimal find + while loop ==="
+          TEST_DIR="$HOME/Projects/debug_prep"
+          mkdir -p "$TEST_DIR/secrets"
+          mkdir -p "$TEST_DIR/normal"
+
+          echo "--- Directory listing ---"
+          ls -la "$TEST_DIR"
+
+          echo ""
+          echo "--- Testing find with process substitution ---"
+          while IFS= read -r -d '' dir; do
+            echo "Found dir: $dir"
+            basename_dir=$(basename "$dir")
+            echo "  basename: $basename_dir"
+            if [[ "$basename_dir" == "secrets" ]]; then
+              echo "  -> would chmod 700"
+              chmod 700 "$dir"
+              echo "  -> chmod exit code: $?"
+            fi
+          done < <(find "$TEST_DIR" -type d -print0 2>/dev/null || true)
+          echo "Loop completed"
+
+          echo ""
+          echo "=== Test prepare-permissions.sh with --verbose ==="
+          sudo ./scripts/prepare-permissions.sh --verbose "$TEST_DIR" 2>&1 || {
+            EXIT_CODE=$?
+            echo ""
+            echo "Script failed with exit code: $EXIT_CODE"
+            echo ""
+            echo "--- Trying with bash -x for trace ---"
+            sudo bash -x ./scripts/prepare-permissions.sh "$TEST_DIR" 2>&1 | tail -100 || true
+          }
+
+          echo ""
+          echo "=== Cleanup ==="
+          rm -rf "$TEST_DIR"
 
       # ── 14. Test prepare-permissions.sh ────────────────────
       - name: "Test: prepare-permissions.sh"
