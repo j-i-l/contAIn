@@ -298,7 +298,8 @@ in {
           # OpenCode config & data directories
           for dir in \
             "${cfg.primaryHome}/.config/opencode" \
-            "${cfg.primaryHome}/.local/share/opencode"; do
+            "${cfg.primaryHome}/.local/share/opencode" \
+            "${cfg.primaryHome}/.local/share/opencode/log"; do
             mkdir -p "$dir"
             chown ${cfg.primaryUser}:${cfg.primaryUser} "$dir"
           done

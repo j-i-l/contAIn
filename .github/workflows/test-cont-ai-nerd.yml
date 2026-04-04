@@ -47,7 +47,7 @@ jobs:
       # ── Dummy OpenCode config ──────────────────────────────
       - name: Create dummy OpenCode config and auth
         run: |
-          mkdir -p ~/.config/opencode ~/.local/share/opencode
+          mkdir -p ~/.config/opencode ~/.local/share/opencode ~/.local/share/opencode/log
 
           cat > ~/.config/opencode/opencode.json <<'EOF'
           {

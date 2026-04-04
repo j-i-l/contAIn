@@ -317,7 +317,8 @@ echo "==> [4/8] Ensuring OpenCode config & data directories exist..."
 
 for dir in \
   "${PRIMARY_HOME}/.config/opencode" \
-  "${PRIMARY_HOME}/.local/share/opencode"; do
+  "${PRIMARY_HOME}/.local/share/opencode" \
+  "${PRIMARY_HOME}/.local/share/opencode/log"; do
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir"
     chown "${PRIMARY_USER}:${PRIMARY_USER}" "$dir"
