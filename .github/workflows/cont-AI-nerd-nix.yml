@@ -60,7 +60,7 @@ jobs:
       # ── Nix flake build ────────────────────────────────────
       - name: Build Nix flake package
         run: |
-          nix build .# --print-build-logs
+          NIXPKGS_ALLOW_UNFREE=1 nix build .# --print-build-logs --impure
           echo "Nix package built successfully"
           ls -la result/bin/
           ls -la result/lib/cont-ai-nerd/
@@ -84,7 +84,7 @@ jobs:
       # ── Shellcheck via Nix devshell ────────────────────────
       - name: Run shellcheck via Nix devshell
         run: |
-          nix develop --command shellcheck \
+          NIXPKGS_ALLOW_UNFREE=1 nix develop --impure --command shellcheck \
             scripts/configure.sh \
             scripts/setup.sh \
             scripts/prepare-permissions.sh \
@@ -204,8 +204,8 @@ jobs:
           MODE=$(stat -c '%a' "$POLICY")
           [[ "$OWNER" == "$USER" ]] || \
             { echo "FAIL: owner=$OWNER expected=$USER"; exit 1; }
-          [[ "$MODE" == "644" ]] || \
-            { echo "FAIL: mode=$MODE expected=644"; exit 1; }
+          [[ "$MODE" == "640" ]] || \
+            { echo "FAIL: mode=$MODE expected=640"; exit 1; }
 
           echo "--- Policy file contents ---"
           cat "$POLICY"
