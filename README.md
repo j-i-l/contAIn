@@ -66,7 +66,7 @@ cont[AI]*nerd* creates a sandboxed environment where an AI coding agent (OpenCod
 │  │  Primary User    │     │  File Watcher    │     │  Commit Timer   │  │
 │  │  (e.g., alice)   │     │  (systemd)       │     │  (systemd)      │  │
 │  │                  │     │                  │     │                 │  │
-│  │  - Owns files    │     │  - Monitors      │     │  - Runs hourly  │  │
+│  │  - Owns files    │     │  - Monitors      │     │  - Runs daily   │  │
 │  │  - Member of ai  │     │    project dirs  │     │  - Commits      │  │
 │  │    group         │     │  - Fixes perms   │     │    container    │  │
 │  └──────────────────┘     └──────────────────┘     └─────────────────┘  │
@@ -98,19 +98,9 @@ cont[AI]*nerd* creates a sandboxed environment where an AI coding agent (OpenCod
 │  │  │  - Headless mode (--hostname, --port)                      │  │   │
 │  │  │                                                            │  │   │
 │  │  └────────────────────────────────────────────────────────────┘  │   │
-│  │                              ▲                                   │   │
-│  │                              │                                   │   │
-│  │  ┌────────────────────────────────────────────────────────────┐  │   │
-│  │  │              opencode-tui (optional attach mechanism)      │  │   │
-│  │  │                                                            │  │   │
-│  │  │  - Wrapper script at /usr/local/bin/opencode-tui           │  │   │
-│  │  │  - Attaches TUI to running server                          │  │   │
-│  │  │  - Run via: podman exec -it cont-ai-nerd opencode-tui      │  │   │
-│  │  │                                                            │  │   │
-│  │  └────────────────────────────────────────────────────────────┘  │   │
 │  │                                                                  │   │
 │  │  Mounts (paths are examples, configured via config.json):        │   │
-│  │    - /home/alice/Projects → /home/alice/Projects (rw)            │   │
+│  │    - /home/alice/Projects → /workspace/Projects (rw)             │   │
 │  │    - ~/.config/opencode → /home/agent/.config/opencode (ro)      │   │
 │  │    - ~/.local/share/opencode → /home/agent/.local/share (ro)     │   │
 │  │    - ~/.config/cont-ai-nerd/config.json → /etc/cont-ai-nerd/ (ro)│   │
@@ -121,7 +111,9 @@ cont[AI]*nerd* creates a sandboxed environment where an AI coding agent (OpenCod
 ```
 
 **Note:** In the diagram above, `~` refers to the primary user's home directory
-(e.g., `/home/alice` for user `alice`).
+(e.g., `/home/alice` for user `alice`). Project directories are mounted under
+`/workspace` inside the container, with the common parent directory stripped
+(e.g., `/home/alice/Projects` becomes `/workspace/Projects`).
 
 ---
 
@@ -189,8 +181,8 @@ sudo ./scripts/configure.sh
 # Run setup
 sudo ./scripts/setup.sh
 
-# Start the TUI
-podman exec -it cont-ai-nerd opencode-tui
+# Start the TUI (with auth capability)
+sudo cont-ai-nerd-tui
 ```
 
 ### Step 1: Clone the Repository
@@ -280,7 +272,8 @@ Upon completion, you'll see:
   cont-ai-nerd setup complete.
 
   Container : podman ps | grep cont-ai-nerd
-  TUI       : podman exec -it cont-ai-nerd opencode-tui
+  TUI (rw)  : sudo cont-ai-nerd-tui        # can run /connect
+  TUI (ro)  : podman exec -it cont-ai-nerd opencode-tui
   Watcher   : systemctl status cont-ai-nerd-watcher
   Commits   : systemctl list-timers cont-ai-nerd-commit
   Logs      : journalctl -u cont-ai-nerd -f
@@ -289,10 +282,10 @@ Upon completion, you'll see:
 
 ### Step 4: Configure OpenCode Credentials
 
-Before using the TUI, you need to configure your LLM provider credentials. Start the TUI and run the `/connect` command:
+Before using the TUI, you need to configure your LLM provider credentials. Use the host-side TUI script (which has write access to credentials):
 
 ```bash
-podman exec -it cont-ai-nerd opencode-tui
+sudo cont-ai-nerd-tui
 ```
 
 Then in the TUI:
@@ -308,25 +301,36 @@ Follow the prompts to authenticate with your preferred provider.
 
 ### Starting the TUI
 
-To interact with the AI agent, attach the terminal UI to the running server:
+There are two ways to interact with the AI agent:
+
+#### Option 1: Host-side TUI (Recommended for Authentication)
+
+Use this when you need to run `/connect` to authenticate with an LLM provider:
 
 ```bash
-podman exec -it cont-ai-nerd opencode-tui
+sudo cont-ai-nerd-tui
 ```
 
-The TUI provides an interactive session picker where you can:
-- Create new sessions
-- Continue previous sessions
-- Switch between projects
+This spawns a separate container with read-write access to your credentials directory (`~/.local/share/opencode`), allowing `/connect` to save authentication tokens.
 
-#### TUI Options
+#### Option 2: Container-side TUI (Read-only)
+
+For quick sessions when you're already authenticated:
+
+```bash
+sudo podman exec -it cont-ai-nerd opencode-tui
+```
+
+This runs inside the main container with read-only credential access. Use this for normal coding sessions after initial setup.
+
+### TUI Options
 
 ```bash
 # Start with a specific session
-podman exec -it cont-ai-nerd opencode-tui --session <session-id>
+sudo cont-ai-nerd-tui --session <session-id>
 
-# Start in a specific directory
-podman exec -it cont-ai-nerd opencode-tui --dir /path/to/project
+# Start in a specific directory (container path)
+sudo cont-ai-nerd-tui --dir /workspace/Projects/myproject
 ```
 
 ### Monitoring
@@ -671,14 +675,16 @@ sudo apt install inotify-tools  # Ubuntu
 
 **Verify credentials are mounted:**
 ```bash
-podman exec cont-ai-nerd ls -la /home/agent/.local/share/opencode/
+sudo podman exec cont-ai-nerd ls -la /home/agent/.local/share/opencode/
 ```
 
-**Re-authenticate:**
+**Re-authenticate using the host-side TUI (which has write access):**
 ```bash
-podman exec -it cont-ai-nerd opencode-tui
+sudo cont-ai-nerd-tui
 # Then run: /connect
 ```
+
+**Note:** The `podman exec` TUI has read-only credential access and cannot run `/connect`.
 
 ### Container Runs Out of Memory
 
