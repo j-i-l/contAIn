@@ -551,6 +551,39 @@ jobs:
           grep -E '^User=|^Group=' /etc/containers/systemd/cont-ai-nerd.container || true
           echo ""
 
+          echo "=== Additional mount debugging ==="
+          echo "--- HostConfig.Binds ---"
+          sudo podman inspect cont-ai-nerd --format '{{json .HostConfig.Binds}}' || true
+          echo ""
+
+          echo "--- mount command output (Projects) ---"
+          mount | grep Projects || echo "(no mount entry found)"
+          echo ""
+
+          echo "--- Directory ownership on host ---"
+          ls -lan "$HOME/Projects" | head -5
+          echo ""
+
+          echo "--- stat inside container ---"
+          sudo podman exec cont-ai-nerd stat /workspace/Projects/debug_test_1 || true
+          echo ""
+
+          echo "--- /proc/self/uid_map and gid_map ---"
+          echo "uid_map:"
+          sudo podman exec cont-ai-nerd cat /proc/self/uid_map
+          echo "gid_map:"
+          sudo podman exec cont-ai-nerd cat /proc/self/gid_map
+          echo ""
+
+          echo "--- Check if idmapped mounts are in use ---"
+          sudo podman info --format '{{.Host.IDMappings}}' || true
+          echo ""
+
+          echo "--- podman version and storage driver ---"
+          podman --version
+          sudo podman info --format '{{.Store.GraphDriverName}}' || true
+          echo ""
+
           echo "=== Cleanup ==="
           rm -f "$TEST_DIR/debug_test_1" "$TEST_DIR/debug_test_2" || true
 
