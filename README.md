@@ -439,7 +439,7 @@ cont[AI]*nerd* uses rootful Podman to create a container that:
 
 ### File Permissions Model
 
-The permissions model allows fine-grained control over what the agent can access:
+The permissions model gives you full control over what the agent can access. **You opt in** by setting file and directory permissions yourself:
 
 ```
 Primary User (e.g., alice)        Agent User (agent)
@@ -449,12 +449,12 @@ Primary User (e.g., alice)        Agent User (agent)
 ┌─────────────────────────────────────────┐
 │              ai group                   │
 │                                         │
-│  Permission Levels:                     │
+│  Permission Levels (you choose):        │
 │                                         │
 │  ┌─────────────────────────────────┐    │
-│  │  g+r   → agent can READ         │    │
 │  │  g+rw  → agent can READ + WRITE │    │
-│  │  700   → agent BLOCKED          │    │
+│  │  g+r   → agent can READ only    │    │
+│  │  g=    → agent BLOCKED          │    │
 │  └─────────────────────────────────┘    │
 │                                         │
 │  Directory requirements:                │
@@ -465,50 +465,84 @@ Primary User (e.g., alice)        Agent User (agent)
 └─────────────────────────────────────────┘
 ```
 
-**Permission categories:**
+**Setting agent access:**
 
-| Category | Mode | Agent Access | Examples |
-|----------|------|--------------|----------|
-| **Blocked** | `700` | None | `.env`, `secrets/`, `*.key` |
-| **Read-only** | `g+r` (files), `g+rx` (dirs) | Read | `.git/`, config files |
-| **Read-write** | `g+rw` (files), `g+rwx` (dirs) | Full | Source code, docs |
+| Goal | Command |
+|------|---------|
+| **Read + Write** | `sudo chgrp ai file && sudo chmod g+rw file` |
+| **Read only** | `sudo chgrp ai file && sudo chmod g+r,g-w file` |
+| **Blocked** | Leave group as non-`ai`, or `chmod 600 file` |
+
+For directories, add execute and setgid bits:
+
+```bash
+# Make directory traversable + inherit ai group for new files
+sudo chgrp ai ~/Projects/myproject
+sudo chmod g+rxs ~/Projects/myproject
+
+# Recursively grant read+write access
+sudo chgrp -R ai ~/Projects/myproject
+sudo chmod -R g+rw ~/Projects/myproject
+find ~/Projects/myproject -type d -exec chmod g+xs {} \;
+```
 
 **Key aspects:**
 
-1. **Setgid on directories** — New files/directories inherit the `ai` group
-2. **Granular access** — Set permissions per-file based on sensitivity
-3. **Sensitive files blocked** — `.env`, secrets, keys are mode `700` (owner only)
-4. **`.git/` read-only** — Agent can read history but not modify it
-5. **File watcher** — Fixes permissions on files created by the agent
+1. **Opt-in model** — The agent only accesses files you explicitly grant via group permissions
+2. **Setgid on directories** — New files/directories inherit the `ai` group
+3. **Granular access** — Set permissions per-file based on sensitivity
+4. **`.git/` read-only** — The prepare script sets `.git/` to read-only automatically
+5. **File watcher** — Fixes ownership on files created by the agent
 
 ### Preparing Project Permissions
 
-Before running the agent on your projects, use `prepare-permissions.sh` to set secure permissions:
+The `prepare-permissions.sh` script makes project directories **traversable** for the agent. It does not change individual file permissions — you control what the agent can read/write.
 
 ```bash
 # Preview changes (dry-run)
 sudo ./scripts/prepare-permissions.sh --dry-run ~/Projects
 
-# Apply permissions
+# Make directories traversable
 sudo ./scripts/prepare-permissions.sh ~/Projects
 
-# Or use paths from config.json
+# Use paths from config.json
 sudo ./scripts/prepare-permissions.sh --from-config
 ```
 
-The script applies the following rules:
+**What the script does:**
 
-| Pattern | Mode | Result |
-|---------|------|--------|
-| `.env`, `.env.*` | `700` | Blocked |
-| `secrets/`, `.secrets/`, `vault/` | `700` | Blocked |
-| `*.key`, `*.pem`, `id_rsa`, etc. | `700` | Blocked |
-| `.git/` | `g=rX` | Read-only |
-| Directories | `g+rxs` | Read + setgid |
-| Regular files | `g+rw` | Read-write |
-| Files with existing `g < 6` | preserved | Keeps restriction |
+| Target | Action | Result |
+|--------|--------|--------|
+| `.git/` directories | `chmod -R g=rX,g-w` | Agent can read history, cannot modify |
+| Other directories | `chgrp ai && chmod g+rxs` | Agent can traverse, new files inherit `ai` group |
+| Sensitive files | *unchanged by default* | Your existing permissions preserved |
+| Regular files | *unchanged* | Set permissions yourself |
 
-**Important:** The script preserves existing restrictive permissions. If a file already has more restrictive group permissions (e.g., `g=r` or no group access), those are kept.
+**Handling sensitive files:**
+
+The script detects sensitive files (`.env`, `secrets/`, `*.key`, etc.) but does **not** lock them by default. You have three options:
+
+```bash
+# Option 1: Lock all sensitive files automatically
+sudo ./scripts/prepare-permissions.sh --lock-sensitive ~/Projects
+
+# Option 2: Interactive prompt (default when running in terminal)
+sudo ./scripts/prepare-permissions.sh ~/Projects
+# → Script will ask: "Lock these from the agent? [1] Yes [2] No"
+
+# Option 3: Skip sensitive file handling entirely
+sudo ./scripts/prepare-permissions.sh --no-lock-sensitive ~/Projects
+```
+
+When locked, sensitive files get mode `600` (files) or `700` (directories), making them inaccessible to the agent.
+
+**Sensitive patterns detected:**
+
+- Environment: `.env`, `.env.*`, `*.env`
+- Secrets: `secrets/`, `.secrets/`, `vault/`, `credentials/`
+- Keys: `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, etc.
+- Auth: `.npmrc`, `.pypirc`, `.netrc`, `*auth*.json`
+- Databases: `*.sqlite`, `*.db`
 
 ### Systemd Services
 

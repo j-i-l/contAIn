@@ -861,52 +861,6 @@ jobs:
           echo ""
           echo "PASS: read-only mounts"
 
-      # ── 14a. Debug prepare-permissions.sh ────────────────────
-      - name: "Debug: prepare-permissions.sh behavior"
-        run: |
-          set -euo pipefail
-
-          echo "=== Bash version ==="
-          bash --version
-
-          echo ""
-          echo "=== Test minimal find + while loop ==="
-          TEST_DIR="$HOME/Projects/debug_prep"
-          mkdir -p "$TEST_DIR/secrets"
-          mkdir -p "$TEST_DIR/normal"
-
-          echo "--- Directory listing ---"
-          ls -la "$TEST_DIR"
-
-          echo ""
-          echo "--- Testing find with process substitution ---"
-          while IFS= read -r -d '' dir; do
-            echo "Found dir: $dir"
-            basename_dir=$(basename "$dir")
-            echo "  basename: $basename_dir"
-            if [[ "$basename_dir" == "secrets" ]]; then
-              echo "  -> would chmod 700"
-              chmod 700 "$dir"
-              echo "  -> chmod exit code: $?"
-            fi
-          done < <(find "$TEST_DIR" -type d -print0 2>/dev/null || true)
-          echo "Loop completed"
-
-          echo ""
-          echo "=== Test prepare-permissions.sh with --verbose ==="
-          sudo ./scripts/prepare-permissions.sh --verbose "$TEST_DIR" 2>&1 || {
-            EXIT_CODE=$?
-            echo ""
-            echo "Script failed with exit code: $EXIT_CODE"
-            echo ""
-            echo "--- Trying with bash -x for trace ---"
-            sudo bash -x ./scripts/prepare-permissions.sh "$TEST_DIR" 2>&1 | tail -100 || true
-          }
-
-          echo ""
-          echo "=== Cleanup ==="
-          rm -rf "$TEST_DIR"
-
       # ── 14. Test prepare-permissions.sh ────────────────────
       - name: "Test: prepare-permissions.sh"
         run: |
@@ -921,84 +875,82 @@ jobs:
 
           echo "--- Creating test files ---"
           
-          # .env file (should be blocked)
+          # Sensitive files (script should NOT lock by default)
           echo "SECRET_KEY=abc123" > "$TEST_DIR/.env"
           chmod 644 "$TEST_DIR/.env"
           
-          # .env.local file (should be blocked)
           echo "LOCAL_SECRET=xyz" > "$TEST_DIR/.env.local"
           chmod 644 "$TEST_DIR/.env.local"
           
-          # secrets directory (should be blocked)
           mkdir -p "$TEST_DIR/secrets"
           echo "password" > "$TEST_DIR/secrets/password.txt"
           chmod 755 "$TEST_DIR/secrets"
           chmod 644 "$TEST_DIR/secrets/password.txt"
           
-          # Private key file (should be blocked)
           echo "PRIVATE KEY" > "$TEST_DIR/id_rsa"
           chmod 644 "$TEST_DIR/id_rsa"
           
-          # .git directory (should be read-only)
+          # .git directory (should be set read-only)
           mkdir -p "$TEST_DIR/.git/objects"
           echo "ref: refs/heads/main" > "$TEST_DIR/.git/HEAD"
           chmod 755 "$TEST_DIR/.git"
           chmod 644 "$TEST_DIR/.git/HEAD"
           
-          # Regular files (should get g+rw)
+          # Regular file - user opts in to agent write access
           echo "source code" > "$TEST_DIR/main.py"
-          chmod 644 "$TEST_DIR/main.py"
+          chgrp ai "$TEST_DIR/main.py"
+          chmod 664 "$TEST_DIR/main.py"  # User explicitly sets g+rw
           
-          # File with existing restrictive group perms (should be preserved)
-          echo "read-only-for-group" > "$TEST_DIR/readonly.txt"
-          chmod 640 "$TEST_DIR/readonly.txt"  # g=r (4), should be preserved
+          # File user wants agent to read only
+          echo "read-only-for-agent" > "$TEST_DIR/readonly.txt"
           chgrp ai "$TEST_DIR/readonly.txt"
+          chmod 640 "$TEST_DIR/readonly.txt"  # g=r (user's choice)
           
-          # File with no group access (should be preserved)
-          echo "no-group-access" > "$TEST_DIR/private.txt"
-          chmod 600 "$TEST_DIR/private.txt"  # g= (0), should be preserved
+          # Subdirectory that needs to be traversable
+          mkdir -p "$TEST_DIR/subdir"
+          echo "nested file" > "$TEST_DIR/subdir/nested.py"
+          # Don't set group - script should make it traversable
           
           echo "--- Initial permissions ---"
           ls -la "$TEST_DIR/"
           ls -la "$TEST_DIR/.git/" || true
           ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
 
           echo ""
-          echo "--- Running prepare-permissions.sh ---"
-          sudo ./scripts/prepare-permissions.sh "$TEST_DIR"
+          echo "--- Running prepare-permissions.sh (default: no lock) ---"
+          sudo ./scripts/prepare-permissions.sh --no-lock-sensitive "$TEST_DIR"
 
           echo ""
           echo "--- Final permissions ---"
           ls -la "$TEST_DIR/"
-          ls -la "$TEST_DIR/.git/" 2>/dev/null || echo "(can't list .git - may be 700)"
-          ls -la "$TEST_DIR/secrets/" 2>/dev/null || echo "(can't list secrets - may be 700)"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
 
           echo ""
-          echo "--- Verifying .env is blocked (mode 700) ---"
+          echo "=== Verifying default behavior (sensitive files NOT locked) ==="
+          
+          echo "--- .env should be unchanged (still 644) ---"
           ENV_MODE=$(stat -c '%a' "$TEST_DIR/.env")
-          [[ "$ENV_MODE" == "700" ]] || \
-            { echo "FAIL: .env mode=$ENV_MODE, expected=700"; exit 1; }
-          echo "PASS: .env is mode 700"
+          [[ "$ENV_MODE" == "644" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: .env unchanged"
 
-          echo "--- Verifying .env.local is blocked (mode 700) ---"
-          ENV_LOCAL_MODE=$(stat -c '%a' "$TEST_DIR/.env.local")
-          [[ "$ENV_LOCAL_MODE" == "700" ]] || \
-            { echo "FAIL: .env.local mode=$ENV_LOCAL_MODE, expected=700"; exit 1; }
-          echo "PASS: .env.local is mode 700"
-
-          echo "--- Verifying secrets/ is blocked (mode 700) ---"
+          echo "--- secrets/ should be unchanged (still 755) ---"
           SECRETS_MODE=$(stat -c '%a' "$TEST_DIR/secrets")
-          [[ "$SECRETS_MODE" == "700" ]] || \
-            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=700"; exit 1; }
-          echo "PASS: secrets/ is mode 700"
+          [[ "$SECRETS_MODE" == "755" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=755 (unchanged)"; exit 1; }
+          echo "PASS: secrets/ unchanged"
 
-          echo "--- Verifying id_rsa is blocked (mode 700) ---"
+          echo "--- id_rsa should be unchanged (still 644) ---"
           KEY_MODE=$(stat -c '%a' "$TEST_DIR/id_rsa")
-          [[ "$KEY_MODE" == "700" ]] || \
-            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=700"; exit 1; }
-          echo "PASS: id_rsa is mode 700"
+          [[ "$KEY_MODE" == "644" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: id_rsa unchanged"
 
-          echo "--- Verifying .git/ is read-only (no group write) ---"
+          echo ""
+          echo "=== Verifying .git/ is read-only ==="
           GIT_PERMS=$(stat -c '%A' "$TEST_DIR/.git")
           if echo "$GIT_PERMS" | grep -q 'w.....$'; then
             echo "FAIL: .git has group write: $GIT_PERMS"
@@ -1006,42 +958,38 @@ jobs:
           fi
           echo "PASS: .git is read-only for group ($GIT_PERMS)"
 
-          echo "--- Verifying main.py has g+rw ---"
-          MAIN_GROUP_PERM=$(stat -c '%a' "$TEST_DIR/main.py" | cut -c2)
-          [[ "$MAIN_GROUP_PERM" -ge 6 ]] || \
-            { echo "FAIL: main.py group perm=$MAIN_GROUP_PERM, expected >=6"; exit 1; }
-          echo "PASS: main.py has g+rw"
+          echo ""
+          echo "=== Verifying directories are traversable ==="
+          
+          echo "--- subdir should be g+rxs with group ai ---"
+          SUBDIR_GROUP=$(stat -c '%G' "$TEST_DIR/subdir")
+          SUBDIR_PERMS=$(stat -c '%A' "$TEST_DIR/subdir")
+          [[ "$SUBDIR_GROUP" == "ai" ]] || \
+            { echo "FAIL: subdir group=$SUBDIR_GROUP, expected=ai"; exit 1; }
+          echo "$SUBDIR_PERMS" | grep -q 'r.s' || echo "$SUBDIR_PERMS" | grep -q 'r.x' || \
+            { echo "FAIL: subdir not traversable: $SUBDIR_PERMS"; exit 1; }
+          echo "PASS: subdir is traversable ($SUBDIR_PERMS, group=$SUBDIR_GROUP)"
 
-          echo "--- Verifying readonly.txt preserved restrictive perms ---"
-          RO_GROUP_PERM=$(stat -c '%a' "$TEST_DIR/readonly.txt" | cut -c2)
-          [[ "$RO_GROUP_PERM" == "4" ]] || \
-            { echo "FAIL: readonly.txt group perm=$RO_GROUP_PERM, expected=4 (preserved)"; exit 1; }
-          echo "PASS: readonly.txt preserved restrictive group perms (g=r)"
+          echo ""
+          echo "=== Verifying user-set file permissions are preserved ==="
+          
+          echo "--- main.py should still be 664 (user set g+rw) ---"
+          MAIN_PERMS=$(stat -c '%a' "$TEST_DIR/main.py")
+          [[ "$MAIN_PERMS" == "664" ]] || \
+            { echo "FAIL: main.py perms=$MAIN_PERMS, expected=664"; exit 1; }
+          echo "PASS: main.py preserved (664)"
 
-          echo "--- Verifying agent CANNOT read .env ---"
+          echo "--- readonly.txt should still be 640 (user set g+r) ---"
+          RO_PERMS=$(stat -c '%a' "$TEST_DIR/readonly.txt")
+          [[ "$RO_PERMS" == "640" ]] || \
+            { echo "FAIL: readonly.txt perms=$RO_PERMS, expected=640"; exit 1; }
+          echo "PASS: readonly.txt preserved (640)"
+
+          echo ""
+          echo "=== Verifying agent access via container ==="
           WORKSPACE_TEST="/workspace/perm_test"
-          if sudo podman run --rm \
-            --user ${AGENT_UID}:${AI_GID} \
-            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
-            --entrypoint cat \
-            localhost/cont-ai-nerd:latest "${WORKSPACE_TEST}/.env" 2>/dev/null; then
-            echo "FAIL: agent should NOT be able to read .env"
-            exit 1
-          fi
-          echo "PASS: agent blocked from .env"
 
-          echo "--- Verifying agent CANNOT read secrets/ ---"
-          if sudo podman run --rm \
-            --user ${AGENT_UID}:${AI_GID} \
-            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
-            --entrypoint ls \
-            localhost/cont-ai-nerd:latest "${WORKSPACE_TEST}/secrets" 2>/dev/null; then
-            echo "FAIL: agent should NOT be able to list secrets/"
-            exit 1
-          fi
-          echo "PASS: agent blocked from secrets/"
-
-          echo "--- Verifying agent CAN read .git/HEAD (read-only) ---"
+          echo "--- agent CAN read .git/HEAD (read-only) ---"
           sudo podman run --rm \
             --user ${AGENT_UID}:${AI_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
@@ -1050,7 +998,7 @@ jobs:
             { echo "FAIL: agent should be able to read .git/HEAD"; exit 1; }
           echo "PASS: agent can read .git/HEAD"
 
-          echo "--- Verifying agent CANNOT write to .git/HEAD ---"
+          echo "--- agent CANNOT write to .git/HEAD ---"
           if sudo podman run --rm \
             --user ${AGENT_UID}:${AI_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
@@ -1062,7 +1010,7 @@ jobs:
           fi
           echo "PASS: agent blocked from writing to .git/"
 
-          echo "--- Verifying agent CAN read main.py ---"
+          echo "--- agent CAN read main.py (user granted g+rw) ---"
           sudo podman run --rm \
             --user ${AGENT_UID}:${AI_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
@@ -1071,7 +1019,7 @@ jobs:
             { echo "FAIL: agent should be able to read main.py"; exit 1; }
           echo "PASS: agent can read main.py"
 
-          echo "--- Verifying agent CAN write to main.py ---"
+          echo "--- agent CAN write to main.py (user granted g+rw) ---"
           sudo podman run --rm \
             --user ${AGENT_UID}:${AI_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
@@ -1080,6 +1028,74 @@ jobs:
             -c "echo '# comment' >> '${WORKSPACE_TEST}/main.py'" || \
             { echo "FAIL: agent should be able to write to main.py"; exit 1; }
           echo "PASS: agent can write to main.py"
+
+          echo "--- agent CAN read readonly.txt (user granted g+r) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/cont-ai-nerd:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
+            { echo "FAIL: agent should be able to read readonly.txt"; exit 1; }
+          echo "PASS: agent can read readonly.txt"
+
+          echo "--- agent CANNOT write to readonly.txt (user set g+r only) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/cont-ai-nerd:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/readonly.txt'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to readonly.txt"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to readonly.txt"
+
+          echo ""
+          echo "=== Testing --lock-sensitive flag ==="
+          
+          # Create fresh sensitive files for lock test
+          TEST_DIR2="$PROJECT/perm_test_lock"
+          mkdir -p "$TEST_DIR2"
+          echo "SECRET" > "$TEST_DIR2/.env"
+          chmod 644 "$TEST_DIR2/.env"
+          mkdir -p "$TEST_DIR2/secrets"
+          echo "password" > "$TEST_DIR2/secrets/pass.txt"
+          chmod 755 "$TEST_DIR2/secrets"
+          echo "PRIVATE KEY" > "$TEST_DIR2/id_rsa"
+          chmod 644 "$TEST_DIR2/id_rsa"
+          
+          echo "--- Running with --lock-sensitive ---"
+          sudo ./scripts/prepare-permissions.sh --lock-sensitive "$TEST_DIR2"
+          
+          echo "--- .env should be locked (600) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR2/.env")
+          [[ "$ENV_MODE" == "600" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=600"; exit 1; }
+          echo "PASS: .env locked (600)"
+
+          echo "--- secrets/ should be locked (700) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR2/secrets")
+          [[ "$SECRETS_MODE" == "700" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=700"; exit 1; }
+          echo "PASS: secrets/ locked (700)"
+
+          echo "--- id_rsa should be locked (600) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR2/id_rsa")
+          [[ "$KEY_MODE" == "600" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=600"; exit 1; }
+          echo "PASS: id_rsa locked (600)"
+
+          echo "--- agent CANNOT read locked .env ---"
+          WORKSPACE_TEST2="/workspace/perm_test_lock"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${AI_GID} \
+            -v "${TEST_DIR2}:${WORKSPACE_TEST2}:rw" \
+            --entrypoint cat \
+            localhost/cont-ai-nerd:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read locked .env"
+            exit 1
+          fi
+          echo "PASS: agent blocked from locked .env"
 
           echo ""
           echo "PASS: prepare-permissions.sh"

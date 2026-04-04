@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
-# prepare-permissions.sh — Set secure permissions on project directories
+# prepare-permissions.sh — Make project directories traversable for the agent
 # =========================================================================
-# This script configures file permissions for use with cont-ai-nerd,
-# following a principle of least privilege:
+# This script prepares project directories for use with cont-ai-nerd by:
 #
-#   - Sensitive files/dirs (.env, secrets/, etc.) → 700 (agent blocked)
-#   - .git/ directories → read-only for ai group (no write)
-#   - Directories → g+rxs (readable, browsable, setgid for inheritance)
-#   - Regular files → g+rw (read+write) unless already more restrictive
+#   1. Making directories traversable (g+rxs) so the agent can navigate
+#   2. Setting .git/ directories to read-only for the ai group
+#   3. Optionally locking sensitive files/dirs (with --lock-sensitive)
 #
-# The script preserves existing restrictive permissions — it will never
-# loosen permissions that are already tighter than the defaults.
+# The script does NOT modify individual file permissions. You control what
+# the agent can read/write by setting permissions yourself:
+#
+#   Agent read+write : chgrp ai file && chmod g+rw file
+#   Agent read-only  : chgrp ai file && chmod g+r,g-w file
+#   Agent blocked    : leave group as non-ai, or chmod g= file
 #
 # Usage:
-#   sudo ./prepare-permissions.sh [--dry-run] <directory> [<directory>...]
+#   sudo ./prepare-permissions.sh [OPTIONS] <directory> [<directory>...]
 #   sudo ./prepare-permissions.sh --from-config
 #
 # Examples:
 #   sudo ./prepare-permissions.sh ~/Projects
 #   sudo ./prepare-permissions.sh --dry-run ~/Projects ~/work
-#   sudo ./prepare-permissions.sh --from-config  # reads from config.json
+#   sudo ./prepare-permissions.sh --lock-sensitive ~/Projects
+#   sudo ./prepare-permissions.sh --from-config
 #
 # =========================================================================
 set -euo pipefail
@@ -47,7 +50,7 @@ die()   { error "$@"; exit 1; }
 debug() { [[ "${VERBOSE:-false}" == "true" ]] && echo -e "${DIM}[DEBUG] $*${RESET}" || true; }
 
 # ── Sensitive patterns ───────────────────────────────────────────────────
-# Files and directories matching these patterns will be set to mode 700
+# Files and directories matching these patterns can optionally be locked
 # (owner only, completely inaccessible to the agent).
 
 SENSITIVE_FILE_PATTERNS=(
@@ -135,6 +138,7 @@ SENSITIVE_DIR_PATTERNS=(
 DRY_RUN=false
 VERBOSE=false
 FROM_CONFIG=false
+LOCK_SENSITIVE=""  # "", "yes", or "no"
 AGENT_GROUP="ai"
 DIRECTORIES=()
 
@@ -144,18 +148,25 @@ usage() {
 Usage: $(basename "$0") [OPTIONS] <directory> [<directory>...]
        $(basename "$0") --from-config
 
-Set secure file permissions on project directories for cont-ai-nerd.
+Make project directories traversable for the cont-ai-nerd agent.
+
+This script sets directories to g+rxs (traversable with setgid) and .git/
+to read-only. It does NOT modify individual file permissions — you control
+what the agent can access by setting file permissions yourself.
 
 Options:
-  --dry-run       Show what would be changed without making changes
-  --verbose, -v   Show detailed output
-  --group <name>  Specify the agent group (default: ai)
-  --from-config   Read project paths from ~/.config/cont-ai-nerd/config.json
-  --help, -h      Show this help message
+  --dry-run           Show what would be changed without making changes
+  --verbose, -v       Show detailed output
+  --group <name>      Specify the agent group (default: ai)
+  --from-config       Read project paths from ~/.config/cont-ai-nerd/config.json
+  --lock-sensitive    Lock sensitive files (600) and dirs (700) without prompting
+  --no-lock-sensitive Skip sensitive file handling without prompting
+  --help, -h          Show this help message
 
 Examples:
   sudo ./prepare-permissions.sh ~/Projects
   sudo ./prepare-permissions.sh --dry-run ~/Projects ~/work
+  sudo ./prepare-permissions.sh --lock-sensitive ~/Projects
   sudo ./prepare-permissions.sh --from-config
 
 EOF
@@ -179,6 +190,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --from-config)
       FROM_CONFIG=true
+      shift
+      ;;
+    --lock-sensitive)
+      LOCK_SENSITIVE="yes"
+      shift
+      ;;
+    --no-lock-sensitive)
+      LOCK_SENSITIVE="no"
       shift
       ;;
     --help|-h)
@@ -244,11 +263,15 @@ for dir in "${DIRECTORIES[@]}"; do
 done
 
 # ── Statistics ───────────────────────────────────────────────────────────
-STATS_SENSITIVE_LOCKED=0
 STATS_GIT_READONLY=0
-STATS_DIRS_SETGID=0
-STATS_FILES_GROUPRW=0
-STATS_PRESERVED=0
+STATS_DIRS_TRAVERSABLE=0
+STATS_DIRS_SKIPPED=0
+STATS_SENSITIVE_LOCKED=0
+STATS_SENSITIVE_FOUND=0
+
+# ── Arrays to collect sensitive items ────────────────────────────────────
+SENSITIVE_FILES=()
+SENSITIVE_DIRS=()
 
 # ── Helper: Check if path matches sensitive patterns ─────────────────────
 is_sensitive_file() {
@@ -281,22 +304,6 @@ is_sensitive_dir() {
   return 1
 }
 
-# ── Helper: Get current group permission bits ────────────────────────────
-get_group_perms() {
-  local path="$1"
-  stat -c '%a' "$path" | cut -c2
-}
-
-# ── Helper: Check if current perms are more restrictive ──────────────────
-is_more_restrictive() {
-  local current="$1"
-  local proposed="$2"
-  
-  # Compare numeric permission values
-  # More restrictive = lower number
-  [[ "$current" -lt "$proposed" ]]
-}
-
 # ── Helper: Run or print command ─────────────────────────────────────────
 run_cmd() {
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -307,34 +314,58 @@ run_cmd() {
   fi
 }
 
+# ── Collect sensitive items from a directory tree ────────────────────────
+collect_sensitive() {
+  local root="$1"
+  
+  # Collect sensitive directories
+  while IFS= read -r -d '' dir; do
+    if is_sensitive_dir "$dir"; then
+      SENSITIVE_DIRS+=("$dir")
+    fi
+  done < <(find "$root" -type d -print0 2>/dev/null || true)
+  
+  # Collect sensitive files (not inside sensitive dirs)
+  while IFS= read -r -d '' file; do
+    if is_sensitive_file "$file"; then
+      # Check if inside a sensitive directory (will be locked with parent)
+      local inside_sensitive=false
+      for pattern in "${SENSITIVE_DIR_PATTERNS[@]}"; do
+        if [[ "$file" == *"/${pattern}/"* ]]; then
+          inside_sensitive=true
+          break
+        fi
+      done
+      if [[ "$inside_sensitive" == "false" ]]; then
+        SENSITIVE_FILES+=("$file")
+      fi
+    fi
+  done < <(find "$root" -type f -print0 2>/dev/null || true)
+}
+
+# ── Lock sensitive items ─────────────────────────────────────────────────
+lock_sensitive_items() {
+  for dir in "${SENSITIVE_DIRS[@]}"; do
+    debug "  Locking dir (700): $dir"
+    run_cmd chmod 700 "$dir"
+    STATS_SENSITIVE_LOCKED=$((STATS_SENSITIVE_LOCKED + 1))
+  done
+  
+  for file in "${SENSITIVE_FILES[@]}"; do
+    debug "  Locking file (600): $file"
+    run_cmd chmod 600 "$file"
+    STATS_SENSITIVE_LOCKED=$((STATS_SENSITIVE_LOCKED + 1))
+  done
+}
+
 # ── Process a single directory tree ──────────────────────────────────────
 process_directory() {
   local root="$1"
   
   info "Processing: ${root}"
   
-  # Phase 1: Lock sensitive directories (must be done first to prevent descent)
-  info "  Phase 1: Locking sensitive directories..."
-  while IFS= read -r -d '' dir; do
-    if is_sensitive_dir "$dir"; then
-      debug "    Locking sensitive dir: $dir"
-      run_cmd chmod 700 "$dir"
-      STATS_SENSITIVE_LOCKED=$((STATS_SENSITIVE_LOCKED + 1))
-    fi
-  done < <(find "$root" -type d -print0 2>/dev/null || true)
-  
-  # Phase 2: Lock sensitive files
-  info "  Phase 2: Locking sensitive files..."
-  while IFS= read -r -d '' file; do
-    if is_sensitive_file "$file"; then
-      debug "    Locking sensitive file: $file"
-      run_cmd chmod 700 "$file"
-      STATS_SENSITIVE_LOCKED=$((STATS_SENSITIVE_LOCKED + 1))
-    fi
-  done < <(find "$root" -type f -print0 2>/dev/null || true)
-  
-  # Phase 3: Set .git/ directories to read-only for group
-  info "  Phase 3: Setting .git/ to read-only..."
+  # Phase 1: Set .git/ directories to read-only for group
+  info "  Setting .git/ to read-only..."
   while IFS= read -r -d '' gitdir; do
     debug "    Setting .git read-only: $gitdir"
     # g=rX means: group read, execute only on directories (not files)
@@ -344,8 +375,8 @@ process_directory() {
     STATS_GIT_READONLY=$((STATS_GIT_READONLY + 1))
   done < <(find "$root" -type d -name ".git" -print0 2>/dev/null || true)
   
-  # Phase 4: Set directories to g+rxs (excluding .git and sensitive)
-  info "  Phase 4: Setting directory permissions (g+rxs)..."
+  # Phase 2: Set directories to g+rxs (excluding .git and sensitive)
+  info "  Making directories traversable (g+rxs)..."
   while IFS= read -r -d '' dir; do
     # Skip .git directories and their contents
     if [[ "$dir" == *"/.git"* ]] || [[ "$dir" == *"/.git" ]]; then
@@ -354,10 +385,11 @@ process_directory() {
     
     # Skip sensitive directories
     if is_sensitive_dir "$dir"; then
+      debug "    Skipping sensitive dir: $dir"
       continue
     fi
     
-    # Check if inside a sensitive parent (already locked)
+    # Check if inside a sensitive parent
     local skip=false
     for pattern in "${SENSITIVE_DIR_PATTERNS[@]}"; do
       if [[ "$dir" == *"/${pattern}/"* ]] || [[ "$dir" == *"/${pattern}" ]]; then
@@ -365,55 +397,83 @@ process_directory() {
         break
       fi
     done
-    [[ "$skip" == "true" ]] && continue
+    if [[ "$skip" == "true" ]]; then
+      debug "    Skipping (inside sensitive parent): $dir"
+      continue
+    fi
+    
+    # Check if group is already the agent group
+    local current_group
+    current_group=$(stat -c '%G' "$dir")
+    if [[ "$current_group" == "$AGENT_GROUP" ]]; then
+      debug "    Skipping (group already ${AGENT_GROUP}): $dir"
+      STATS_DIRS_SKIPPED=$((STATS_DIRS_SKIPPED + 1))
+      continue
+    fi
     
     debug "    Setting dir g+rxs: $dir"
     run_cmd chgrp "$AGENT_GROUP" "$dir"
     run_cmd chmod g+rxs "$dir"
-    STATS_DIRS_SETGID=$((STATS_DIRS_SETGID + 1))
+    STATS_DIRS_TRAVERSABLE=$((STATS_DIRS_TRAVERSABLE + 1))
   done < <(find "$root" -type d -print0 2>/dev/null || true)
+}
+
+# ── Prompt for sensitive file handling ───────────────────────────────────
+prompt_sensitive() {
+  local total=${#SENSITIVE_FILES[@]}
+  total=$((total + ${#SENSITIVE_DIRS[@]}))
   
-  # Phase 5: Set file permissions (g+rw unless more restrictive)
-  info "  Phase 5: Setting file permissions..."
-  while IFS= read -r -d '' file; do
-    # Skip .git contents
-    if [[ "$file" == *"/.git/"* ]]; then
-      continue
+  if [[ $total -eq 0 ]]; then
+    return
+  fi
+  
+  STATS_SENSITIVE_FOUND=$total
+  
+  echo ""
+  echo -e "${YELLOW}Found ${total} sensitive file(s)/dir(s):${RESET}"
+  
+  # Show up to 10 items
+  local count=0
+  for dir in "${SENSITIVE_DIRS[@]}"; do
+    if [[ $count -ge 10 ]]; then
+      echo "  ... and $((total - count)) more"
+      break
     fi
-    
-    # Skip sensitive files
-    if is_sensitive_file "$file"; then
-      continue
+    local perms
+    perms=$(stat -c '%a' "$dir" 2>/dev/null || echo "???")
+    echo -e "  ${DIM}[dir  $perms]${RESET} $dir"
+    count=$((count + 1))
+  done
+  for file in "${SENSITIVE_FILES[@]}"; do
+    if [[ $count -ge 10 ]]; then
+      echo "  ... and $((total - count)) more"
+      break
     fi
-    
-    # Skip files inside sensitive directories
-    local skip=false
-    for pattern in "${SENSITIVE_DIR_PATTERNS[@]}"; do
-      if [[ "$file" == *"/${pattern}/"* ]]; then
-        skip=true
-        break
-      fi
-    done
-    [[ "$skip" == "true" ]] && continue
-    
-    # Get current group permissions
-    local current_group_perm
-    current_group_perm=$(get_group_perms "$file")
-    
-    # If current perms are more restrictive (lower), preserve them
-    # 6 = rw, so if current < 6, it's more restrictive
-    if [[ "$current_group_perm" -lt 6 ]] && [[ "$current_group_perm" -gt 0 ]]; then
-      # Has some group perms but less than rw — check if intentional
-      # If it's 4 (r--) or 5 (r-x), preserve it
-      debug "    Preserving restrictive perms on: $file (g=$current_group_perm)"
-      STATS_PRESERVED=$((STATS_PRESERVED + 1))
-    else
-      debug "    Setting file g+rw: $file"
-      run_cmd chgrp "$AGENT_GROUP" "$file"
-      run_cmd chmod g+rw "$file"
-      STATS_FILES_GROUPRW=$((STATS_FILES_GROUPRW + 1))
-    fi
-  done < <(find "$root" -type f -print0 2>/dev/null || true)
+    local perms
+    perms=$(stat -c '%a' "$file" 2>/dev/null || echo "???")
+    echo -e "  ${DIM}[file $perms]${RESET} $file"
+    count=$((count + 1))
+  done
+  
+  echo ""
+  echo "Lock these from the agent? (files -> 600, dirs -> 700)"
+  echo "  [1] Yes, lock all"
+  echo "  [2] No, leave permissions unchanged"
+  echo ""
+  
+  local choice
+  read -r -p "Choice [2]: " choice
+  choice="${choice:-2}"
+  
+  case "$choice" in
+    1)
+      info "Locking sensitive files and directories..."
+      lock_sensitive_items
+      ;;
+    *)
+      info "Leaving sensitive file permissions unchanged."
+      ;;
+  esac
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────
@@ -432,21 +492,49 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo ""
 fi
 
+# First pass: collect sensitive items from all directories
+for dir in "${DIRECTORIES[@]}"; do
+  collect_sensitive "$dir"
+done
+
+# Process directories (traversability + .git readonly)
 for dir in "${DIRECTORIES[@]}"; do
   process_directory "$dir"
   echo ""
 done
+
+# Handle sensitive items based on flags or prompt
+TOTAL_SENSITIVE=$((${#SENSITIVE_FILES[@]} + ${#SENSITIVE_DIRS[@]}))
+
+if [[ $TOTAL_SENSITIVE -gt 0 ]]; then
+  STATS_SENSITIVE_FOUND=$TOTAL_SENSITIVE
+  
+  if [[ "$LOCK_SENSITIVE" == "yes" ]]; then
+    info "Locking ${TOTAL_SENSITIVE} sensitive file(s)/dir(s) (--lock-sensitive)..."
+    lock_sensitive_items
+  elif [[ "$LOCK_SENSITIVE" == "no" ]]; then
+    info "Skipping ${TOTAL_SENSITIVE} sensitive file(s)/dir(s) (--no-lock-sensitive)."
+  elif [[ -t 0 ]]; then
+    # Interactive terminal — prompt user
+    prompt_sensitive
+  else
+    # Non-interactive (piped/CI) — default to no locking
+    info "Skipping ${TOTAL_SENSITIVE} sensitive file(s)/dir(s) (non-interactive mode)."
+  fi
+fi
 
 echo -e "${BOLD}=================================================================${RESET}"
 echo -e "${GREEN}  Permission preparation complete!${RESET}"
 echo -e "${BOLD}=================================================================${RESET}"
 echo ""
 echo "  Statistics:"
-echo "    Sensitive files/dirs locked (700) : ${STATS_SENSITIVE_LOCKED}"
 echo "    .git/ dirs set read-only          : ${STATS_GIT_READONLY}"
-echo "    Directories set g+rxs             : ${STATS_DIRS_SETGID}"
-echo "    Files set g+rw                    : ${STATS_FILES_GROUPRW}"
-echo "    Restrictive perms preserved       : ${STATS_PRESERVED}"
+echo "    Directories made traversable      : ${STATS_DIRS_TRAVERSABLE}"
+echo "    Directories skipped (already ai)  : ${STATS_DIRS_SKIPPED}"
+if [[ $STATS_SENSITIVE_FOUND -gt 0 ]]; then
+  echo "    Sensitive items found             : ${STATS_SENSITIVE_FOUND}"
+  echo "    Sensitive items locked            : ${STATS_SENSITIVE_LOCKED}"
+fi
 echo ""
 
 if [[ "$DRY_RUN" == "true" ]]; then
