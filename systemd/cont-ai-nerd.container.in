@@ -53,7 +53,8 @@ Network=host
 PodmanArgs=--memory 2g --pids-limit 100
 
 # ---------- Entrypoint args ----------
-Exec=--hostname @@HOST@@ --port @@PORT@@
+# Run OpenCode in server mode (headless HTTP server)
+Exec=serve --hostname @@HOST@@ --port @@PORT@@
 
 [Service]
 Restart=on-failure

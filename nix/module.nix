@@ -122,7 +122,8 @@ let
     PodmanArgs=--memory ${cfg.container.memoryLimit} --pids-limit ${toString cfg.container.pidsLimit}
 
     # ---------- Entrypoint args ----------
-    Exec=--hostname ${cfg.server.host} --port ${toString cfg.server.port}
+    # Run OpenCode in server mode (headless HTTP server)
+    Exec=serve --hostname ${cfg.server.host} --port ${toString cfg.server.port}
 
     [Service]
     Restart=on-failure
