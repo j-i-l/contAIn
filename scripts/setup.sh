@@ -246,6 +246,25 @@ done
 echo "================================================================="
 echo ""
 
+# ── Update config.json with path_map ─────────────────────────────────────
+# The entrypoint wrapper reads path_map to create symlinks from host paths
+# to their /workspace equivalents inside the container.
+info "Adding path_map to config.json..."
+PATH_MAP_JSON="{"
+first=true
+for p in "${PROJECT_PATHS[@]}"; do
+  $first || PATH_MAP_JSON+=","
+  first=false
+  PATH_MAP_JSON+="$(printf '"%s":"%s"' "$p" "${CONTAINER_PATHS[$p]}")"
+done
+PATH_MAP_JSON+="}"
+
+jq --argjson pm "$PATH_MAP_JSON" '.path_map = $pm' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+chown "${PRIMARY_USER}:${AGENT_GROUP}" "$CONFIG_FILE"
+chmod 640 "$CONFIG_FILE"
+echo "    path_map: ${PATH_MAP_JSON}"
+
 # ── 1. Identity & group provisioning ─────────────────────────────────────
 echo "==> [1/8] Provisioning identity..."
 
@@ -384,8 +403,6 @@ VOLUME_LINES="${VOLUME_LINES%$'\n'}"
 
 # sed handles scalar placeholders; awk handles the multi-line @@VOLUME_LINES@@.
 sed \
-  -e "s|@@AGENT_USER@@|${AGENT_USER}|g" \
-  -e "s|@@AGENT_GROUP@@|${AGENT_GROUP}|g" \
   -e "s|@@PRIMARY_HOME@@|${PRIMARY_HOME}|g" \
   -e "s|@@CONTAINERD_CONFIG@@|${CONTAINERD_CONFIG}|g" \
   -e "s|@@HOST@@|${HOST}|g" \

@@ -61,6 +61,7 @@ let
     primary_user  = cfg.primaryUser;
     primary_home  = cfg.primaryHome;
     project_paths = cfg.projectPaths;
+    path_map      = containerPaths;
     agent_user    = cfg.agent.user;
     agent_group   = cfg.agent.group;
     host          = cfg.server.host;
@@ -91,9 +92,8 @@ let
     ContainerName=cont-ai-nerd
     Image=localhost/cont-ai-nerd:latest
 
-    # Run container as the agent user/group (resolved by Podman at runtime)
-    User=${cfg.agent.user}
-    Group=${cfg.agent.group}
+    # The entrypoint runs as root to create host-path symlinks,
+    # then drops to the agent user via setpriv.
 
     # ---------- Bind mounts ----------
     # Project directories (read-write, mounted under /workspace)
@@ -295,7 +295,7 @@ in {
           # opencode.json - external_directory policy
           cp --no-preserve=mode ${opencodePolicy} "$CONFIG_DIR/opencode.json"
           chown ${cfg.primaryUser}:${cfg.agent.group} "$CONFIG_DIR/opencode.json"
-          chmod 644 "$CONFIG_DIR/opencode.json"
+          chmod 640 "$CONFIG_DIR/opencode.json"
 
           # OpenCode config & data directories
           for dir in \

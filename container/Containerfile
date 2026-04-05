@@ -7,12 +7,14 @@ ARG AGENT_GID=1001
 
 # Minimal runtime dependencies.
 # inotify-tools is included for potential in-container watchers.
+# util-linux provides setpriv (used by entrypoint to drop privileges).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       git \
       inotify-tools \
       jq \
+      util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Download the opencode binary from GitHub releases.
@@ -52,10 +54,16 @@ RUN mkdir -p /home/agent/.local/share/opencode/log && \
 COPY opencode-tui.sh /usr/local/bin/opencode-tui
 RUN chmod 755 /usr/local/bin/opencode-tui
 
+# Entrypoint wrapper — creates host-path symlinks, drops to agent user.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
+
 # Workspace is the bind-mount target for project directories.
 RUN mkdir -p /workspace && chown agent:ai /workspace
 
-USER agent
+# Set SHELL explicitly for OpenCode's bash tool resolution.
+ENV SHELL=/bin/bash
+
 WORKDIR /workspace
 
 # Health check — tests the OpenCode server's /global/health endpoint.
@@ -65,4 +73,6 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD PORT=$(jq -r '.port // 3000' /etc/cont-ai-nerd/config.json 2>/dev/null || echo 3000) && \
       curl -sf "http://127.0.0.1:${PORT}/global/health" || exit 1
 
-ENTRYPOINT ["opencode"]
+# The entrypoint runs as root to create symlinks, then drops to agent.
+# Do NOT add USER here — the entrypoint handles privilege dropping.
+ENTRYPOINT ["entrypoint.sh"]
