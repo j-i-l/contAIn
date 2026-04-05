@@ -1,8 +1,8 @@
 # cont[AI]*nerd* - NixOS Installation
 
 This directory contains a NixOS flake module that declaratively manages
-the entire cont-ai-nerd deployment: users, groups, systemd services,
-Podman Quadlet container, and file permissions.
+the entire cont-ai-nerd deployment: users, systemd services, Podman
+Quadlet container, and file permissions.
 
 For the general (non-NixOS) installation, see the main
 [README](../README.md).
@@ -63,7 +63,6 @@ In your `configuration.nix` (or a dedicated module file):
     # Optional (shown with defaults)
     # primaryHome = "/home/alice";
     # agent.user  = "agent";
-    # agent.group = "ai";
     # server.host = "127.0.0.1";
     # server.port = 3000;
     # container.memoryLimit    = "2g";
@@ -80,14 +79,13 @@ sudo nixos-rebuild switch
 ```
 
 This will:
-1. Create the `agent` system user and `ai` group
-2. Add your primary user to the `ai` group
-3. Enable Podman
-4. Build the container image (first run only, or when the Containerfile changes)
-5. Generate `config.json` and `opencode.json` in `~/.config/cont-ai-nerd/`
-6. Install the Quadlet container file
-7. Start the watcher service and commit timer
-8. Set project directory permissions (group ownership, setgid)
+1. Create the `agent` system user (sharing the primary user's group)
+2. Enable Podman
+3. Build the container image (first run only, or when the Containerfile changes)
+4. Generate `config.json` and `opencode.json` in `~/.config/cont-ai-nerd/`
+5. Install the Quadlet container file
+6. Start the watcher service and commit timer
+7. Set project directory permissions
 
 **Note:** Project directories are mounted under `/workspace` inside the container.
 The common parent directory is stripped (e.g., `/home/alice/Projects` becomes
@@ -104,7 +102,6 @@ The common parent directory is stripped (e.g., `/home/alice/Projects` becomes
 | `primaryHome` | path | `/home/${primaryUser}` | Home directory of the primary user |
 | `projectPaths` | list of path | - | Directories the agent can access |
 | `agent.user` | string | `"agent"` | Container agent username |
-| `agent.group` | string | `"ai"` | Shared group for file permissions |
 | `server.host` | string | `"127.0.0.1"` | Server listen address |
 | `server.port` | port | `3000` | Server listen port |
 | `container.memoryLimit` | string | `"2g"` | Container memory limit |
@@ -206,7 +203,7 @@ This gives you `bash`, `jq`, `podman`, `inotify-tools`, and `shellcheck`.
 
 | Aspect | Imperative (`setup.sh`) | NixOS module |
 |--------|------------------------|--------------|
-| User/group creation | `groupadd`, `useradd` | `users.groups`, `users.users` |
+| User creation | `useradd` | `users.users` |
 | Systemd services | Files copied to `/etc/systemd/system/` | `systemd.services.*` |
 | Quadlet file | Template rendered by `sed` | `environment.etc` |
 | Configuration | Interactive `configure.sh` | Nix module options |
@@ -248,12 +245,6 @@ Force a rebuild:
 sudo rm /var/lib/cont-ai-nerd/containerfile.sha256
 sudo nixos-rebuild switch
 ```
-
-### Group membership not effective
-
-After the first `nixos-rebuild switch` that adds your user to the `ai`
-group, you need to **log out and back in** (or run `newgrp ai`) for the
-group membership to take effect.
 
 ### Watcher service errors
 
