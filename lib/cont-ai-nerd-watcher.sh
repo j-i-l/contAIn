@@ -2,8 +2,11 @@
 # cont-ai-nerd-watcher.sh
 # ---------------------------------------------------------------------------
 # Inotify-based daemon that reassigns ownership of files created by the agent
-# user back to the primary (human) user while preserving group-write access
-# so the agent retains read/write through the 'ai' group.
+# user back to the primary (human) user.
+#
+# Since the agent shares the primary user's GID (mapped inside the container),
+# only the owner needs to be changed. The group is already correct and the
+# agent's umask (002) ensures files are group-writable by default.
 #
 # Usage: cont-ai-nerd-watcher.sh <primary_user> <agent_user> <dir> [<dir>...]
 # ---------------------------------------------------------------------------
@@ -21,9 +24,8 @@ fi
 
 PRIMARY_UID=$(id -u "$PRIMARY_USER")
 AGENT_UID=$(id -u "$AGENT_USER")
-AI_GID=$(getent group ai | cut -d: -f3)
 
-echo "cont-ai-nerd watcher starting: primary=${PRIMARY_USER}(${PRIMARY_UID}) agent=${AGENT_USER}(${AGENT_UID}) gid=ai(${AI_GID})"
+echo "cont-ai-nerd watcher starting: primary=${PRIMARY_USER}(${PRIMARY_UID}) agent=${AGENT_USER}(${AGENT_UID})"
 echo "Watching: ${WATCH_DIRS[*]}"
 
 # Monitor for file creation and moves (which look like creates to the target).
@@ -40,14 +42,8 @@ while IFS= read -r filepath; do
   file_uid=$(stat -c '%u' "$filepath" 2>/dev/null) || continue
 
   if [[ "$file_uid" == "$AGENT_UID" ]]; then
-    chown "${PRIMARY_UID}:${AI_GID}" "$filepath" 2>/dev/null || true
-    # Preserve group-write so the agent can still modify through 'ai' group.
-    chmod g+w "$filepath" 2>/dev/null || true
-
-    # If a new directory was created, propagate the setgid bit so that
-    # further files created inside it also inherit the 'ai' group.
-    if [[ -d "$filepath" ]]; then
-      chmod g+s "$filepath" 2>/dev/null || true
-    fi
+    # Only change the owner — the group is already correct (primary user's
+    # group via mapped GID) and permissions are set by the agent's umask.
+    chown "$PRIMARY_UID" "$filepath" 2>/dev/null || true
   fi
 done

@@ -196,13 +196,6 @@ if [[ -z "$AGENT_USER" ]]; then
   AGENT_USER="agent"
 fi
 
-# ── Agent group ──────────────────────────────────────────────────────────
-prompt "Shared group name" "ai" AGENT_GROUP
-
-if [[ -z "$AGENT_GROUP" ]]; then
-  AGENT_GROUP="ai"
-fi
-
 # ── Host ─────────────────────────────────────────────────────────────────
 prompt "Server listen address" "127.0.0.1" HOST
 
@@ -238,8 +231,8 @@ CONFIG_DIR="${PRIMARY_HOME}/.config/cont-ai-nerd"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
 
 mkdir -p "$CONFIG_DIR"
-chown "${PRIMARY_USER}:${PRIMARY_USER}" "$CONFIG_DIR"
-chmod 700 "$CONFIG_DIR"
+chown "${PRIMARY_USER}:" "$CONFIG_DIR"
+chmod 750 "$CONFIG_DIR"
 
 # Build JSON array for project_paths
 PROJECT_PATHS_JSON=$(printf '%s\n' "${PROJECT_PATHS[@]}" | jq -R . | jq -s .)
@@ -251,17 +244,14 @@ cat > "$CONFIG_FILE" <<EOF
   "primary_home": "${PRIMARY_HOME}",
   "project_paths": ${PROJECT_PATHS_JSON},
   "agent_user": "${AGENT_USER}",
-  "agent_group": "${AGENT_GROUP}",
   "host": "${HOST}",
   "port": ${PORT},
   "install_dir": "${INSTALL_DIR}"
 }
 EOF
 
-# Set permissions: readable by primary_user and agent group
-# Create the group if it doesn't exist yet (setup.sh will also ensure it exists)
-groupadd -f "${AGENT_GROUP}" 2>/dev/null || true
-chown "${PRIMARY_USER}:${AGENT_GROUP}" "$CONFIG_FILE"
+# Set permissions: readable by primary_user and their primary group
+chown "${PRIMARY_USER}:" "$CONFIG_FILE"
 chmod 640 "$CONFIG_FILE"
 
 echo ""

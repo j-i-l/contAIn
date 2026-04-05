@@ -1,9 +1,14 @@
 # cont-ai-nerd — Sandboxed AI Agent Container Image
-# Build: sudo podman build --build-arg AGENT_UID=<uid> --build-arg AGENT_GID=<gid> -t cont-ai-nerd .
+# Build: sudo podman build \
+#          --build-arg AGENT_UID=<uid> \
+#          --build-arg AGENT_GID=<primary_gid> \
+#          --build-arg AGENT_GROUP_NAME=<primary_group> \
+#          -t cont-ai-nerd .
 FROM ubuntu:24.04
 
 ARG AGENT_UID=1001
 ARG AGENT_GID=1001
+ARG AGENT_GROUP_NAME=users
 
 # Minimal runtime dependencies.
 # inotify-tools is included for potential in-container watchers.
@@ -31,24 +36,26 @@ RUN set -e; \
     chmod 755 /usr/local/bin/opencode && \
     rm /tmp/opencode.tar.gz
 
-# Create the agent user and ai group with IDs matching the host.
-RUN groupadd -g "${AGENT_GID}" ai && \
-    useradd -u "${AGENT_UID}" -g ai -m -s /bin/bash agent
+# Create agent user with a group whose GID matches the primary user's group
+# on the host. This allows the agent to read/write files via group permissions
+# without requiring a dedicated shared group.
+RUN groupadd -g "${AGENT_GID}" "${AGENT_GROUP_NAME}" && \
+    useradd -u "${AGENT_UID}" -g "${AGENT_GROUP_NAME}" -m -s /bin/bash agent
 
 # Persistent tool directory — survives via overlay commits.
 # The agent can install linters, language servers, etc. here.
-RUN mkdir -p /opt/tools/bin && chown -R agent:ai /opt/tools
+RUN mkdir -p /opt/tools/bin && chown -R agent:"${AGENT_GROUP_NAME}" /opt/tools
 ENV PATH="/opt/tools/bin:${PATH}"
 
 # Config directory for the cont-ai-nerd policy file.
-RUN mkdir -p /etc/cont-ai-nerd && chown agent:ai /etc/cont-ai-nerd
+RUN mkdir -p /etc/cont-ai-nerd && chown agent:"${AGENT_GROUP_NAME}" /etc/cont-ai-nerd
 
 # OpenCode state directory (needed for runtime state like sessions).
-RUN mkdir -p /home/agent/.local/state && chown agent:ai /home/agent/.local/state
+RUN mkdir -p /home/agent/.local/state && chown agent:"${AGENT_GROUP_NAME}" /home/agent/.local/state
 
 # OpenCode data directories (logs, etc.) — auth.json is bind-mounted read-only.
 RUN mkdir -p /home/agent/.local/share/opencode/log && \
-    chown -R agent:ai /home/agent/.local/share/opencode
+    chown -R agent:"${AGENT_GROUP_NAME}" /home/agent/.local/share/opencode
 
 # TUI attach wrapper script
 COPY opencode-tui.sh /usr/local/bin/opencode-tui
@@ -59,7 +66,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 755 /usr/local/bin/entrypoint.sh
 
 # Workspace is the bind-mount target for project directories.
-RUN mkdir -p /workspace && chown agent:ai /workspace
+RUN mkdir -p /workspace && chown agent:"${AGENT_GROUP_NAME}" /workspace
 
 # Set SHELL explicitly for OpenCode's bash tool resolution.
 ENV SHELL=/bin/bash

@@ -25,6 +25,11 @@
 #   - The agent user can traverse these directories but cannot create files
 #     or read anything that isn't part of the /workspace mount.
 #
+# Umask:
+#   Sets umask 002 so agent-created files are 664 (group-writable) and
+#   directories are 775. This ensures the primary user retains full access
+#   to files the agent creates, via their shared group.
+#
 # =========================================================================
 set -eu
 
@@ -45,6 +50,12 @@ if [ "$(id -u)" = "0" ] && [ -f "$CONFIG" ]; then
     ln -sfn "$container_path" "$host_path"
   done
 fi
+
+# ── Set umask for agent-created files ─────────────────────────────────────
+# umask 002 → files are 664 (rw-rw-r--), dirs are 775 (rwxrwxr-x).
+# This ensures the primary user can always read and write files created by
+# the agent via group permissions (since agent shares the primary user's GID).
+umask 002
 
 # ── Drop privileges and exec opencode ────────────────────────────────────
 # If already running as non-root (e.g., podman run --user agent), skip setpriv.
