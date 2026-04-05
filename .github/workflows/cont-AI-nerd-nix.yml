@@ -89,7 +89,8 @@ jobs:
             scripts/setup.sh \
             scripts/prepare-permissions.sh \
             lib/cont-ai-nerd-watcher.sh \
-            lib/cont-ai-nerd-commit.sh
+            lib/cont-ai-nerd-commit.sh \
+            container/entrypoint.sh
 
       # ── Dummy OpenCode config ──────────────────────────────
       - name: Create dummy OpenCode config and auth
@@ -114,16 +115,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Create the project directory first
-          mkdir -p "$HOME/Projects"
+          # Create the project directories first (two paths for multi-path testing)
+          mkdir -p "$HOME/Projects" "$HOME/work"
 
           echo "--- Running configure.sh with scripted input ---"
           # Inputs: primary_user, home, project_paths, agent_user, agent_group, host, port, install_dir
-          # All use defaults except we confirm the user
+          # Use two project paths to test multi-path symlink handling
           printf '%s\n' \
             "$USER" \
             "" \
-            "" \
+            "$HOME/Projects,$HOME/work" \
             "" \
             "" \
             "" \
@@ -194,9 +195,11 @@ jobs:
           echo "--- Checking valid JSON with external_directory ---"
           jq -e '.permission.external_directory' "$POLICY" > /dev/null
 
-          echo "--- Checking project path is allowed (container path) ---"
+          echo "--- Checking project paths are allowed (container paths) ---"
           # Policy now uses container-side /workspace paths
           jq -e '.permission.external_directory["/workspace/Projects/**"]' \
+            "$POLICY" | grep -q allow
+          jq -e '.permission.external_directory["/workspace/work/**"]' \
             "$POLICY" | grep -q allow
 
           echo "--- Checking ownership and mode ---"
@@ -768,7 +771,7 @@ jobs:
           fi
 
           echo "--- Creating file as agent user via podman exec ---"
-          sudo podman exec cont-ai-nerd touch "$CONTAINER_TEST_FILE"
+          sudo podman exec --user agent cont-ai-nerd touch "$CONTAINER_TEST_FILE"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership from agent to primary user.
@@ -821,7 +824,7 @@ jobs:
           fi
 
           echo "--- Creating directory as agent user via podman exec ---"
-          sudo podman exec cont-ai-nerd mkdir "$CONTAINER_TEST_DIR"
+          sudo podman exec --user agent cont-ai-nerd mkdir "$CONTAINER_TEST_DIR"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership and set setgid bit.
@@ -1205,6 +1208,187 @@ jobs:
 
           echo "    TUI script output: $OUTPUT"
           echo "PASS: cont-ai-nerd-tui script"
+
+      # ── 17. Test path_map in config.json ────────────────────
+      - name: "Test: path_map in config.json"
+        run: |
+          set -euo pipefail
+          CONFIG="$HOME/.config/cont-ai-nerd/config.json"
+
+          echo "--- Checking path_map exists in config ---"
+          jq -e '.path_map' "$CONFIG" > /dev/null || \
+            { echo "FAIL: path_map not found in config.json"; exit 1; }
+
+          echo "--- Checking path_map has correct entries ---"
+          MAP=$(jq -r '.path_map | to_entries[] | "\(.key) -> \(.value)"' "$CONFIG")
+          echo "$MAP"
+
+          # Verify both project paths are mapped
+          COUNT=$(jq '.path_map | length' "$CONFIG")
+          [[ "$COUNT" -eq 2 ]] || \
+            { echo "FAIL: expected 2 path_map entries, got $COUNT"; exit 1; }
+
+          echo "--- Checking each host path maps to a /workspace path ---"
+          jq -r '.path_map | to_entries[] | .value' "$CONFIG" | while read -r cpath; do
+            [[ "$cpath" == /workspace/* ]] || \
+              { echo "FAIL: container path '$cpath' does not start with /workspace/"; exit 1; }
+          done
+
+          echo "--- Checking specific mappings ---"
+          jq -e ".path_map[\"$HOME/Projects\"]" "$CONFIG" | grep -q '/workspace/Projects' || \
+            { echo "FAIL: Projects path not correctly mapped"; exit 1; }
+          jq -e ".path_map[\"$HOME/work\"]" "$CONFIG" | grep -q '/workspace/work' || \
+            { echo "FAIL: work path not correctly mapped"; exit 1; }
+
+          echo "PASS: path_map in config.json"
+
+      # ── 18. Test host-path symlinks exist in container ──────
+      - name: "Test: host-path symlinks exist in container"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking symlink for Projects ---"
+          LINK=$(sudo podman exec cont-ai-nerd readlink "$HOME/Projects")
+          echo "    $HOME/Projects -> $LINK"
+          [[ "$LINK" == "/workspace/Projects" ]] || \
+            { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
+          echo "PASS: Projects symlink correct"
+
+          echo "--- Checking symlink for work ---"
+          LINK=$(sudo podman exec cont-ai-nerd readlink "$HOME/work")
+          echo "    $HOME/work -> $LINK"
+          [[ "$LINK" == "/workspace/work" ]] || \
+            { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
+          echo "PASS: work symlink correct"
+
+          echo "--- Checking parent directory exists and is owned by root ---"
+          PARENT_OWNER=$(sudo podman exec cont-ai-nerd stat -c '%U' "$(dirname "$HOME/Projects")")
+          echo "    Parent dir owner: $PARENT_OWNER"
+          [[ "$PARENT_OWNER" == "root" ]] || \
+            { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
+          echo "PASS: parent directory owned by root"
+
+          echo "--- Checking ls through symlink shows real contents ---"
+          sudo podman exec cont-ai-nerd ls "$HOME/Projects" > /dev/null
+          echo "PASS: ls through symlink works"
+
+          echo ""
+          echo "PASS: host-path symlinks"
+
+      # ── 19. Test agent cannot access host home contents ─────
+      - name: "Test: agent cannot access host home directory contents"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          AI_GID=$(getent group ai | cut -d: -f3)
+
+          echo "--- Listing synthetic home dir inside container ---"
+          CONTENTS=$(sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            cont-ai-nerd /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
+          echo "$CONTENTS"
+
+          echo "--- Agent cannot read .bashrc from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            cont-ai-nerd cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
+            echo "FAIL: agent could read .bashrc from host home"
+            exit 1
+          fi
+          echo "PASS: .bashrc not accessible"
+
+          echo "--- Agent cannot read .ssh from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            cont-ai-nerd ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
+            echo "FAIL: agent could list .ssh from host home"
+            exit 1
+          fi
+          echo "PASS: .ssh not accessible"
+
+          echo "--- Agent cannot create files in synthetic home dir ---"
+          if sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            cont-ai-nerd touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
+            echo "FAIL: agent could create files in host home"
+            exit 1
+          fi
+          echo "PASS: cannot create files in synthetic home dir"
+
+          echo ""
+          echo "PASS: host home directory properly isolated"
+
+      # ── 20. Test spawn works via host-side path as cwd ──────
+      - name: "Test: spawn works via host-side path as cwd"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          AI_GID=$(getent group ai | cut -d: -f3)
+
+          echo "--- Running whoami with host-side Projects path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            --workdir "$HOME/Projects" \
+            cont-ai-nerd /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (Projects)"
+
+          echo "--- Running whoami with host-side work path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            --workdir "$HOME/work" \
+            cont-ai-nerd /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (work)"
+
+          echo "--- File operations via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            cont-ai-nerd /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/spawn_test_file'"
+          [[ -f "$HOME/Projects/spawn_test_file" ]] || \
+            { echo "FAIL: file not created on host"; exit 1; }
+          grep -q 'spawn-test' "$HOME/Projects/spawn_test_file" || \
+            { echo "FAIL: file content mismatch"; exit 1; }
+          rm -f "$HOME/Projects/spawn_test_file"
+          echo "PASS: file creation via host-side path"
+
+          echo "--- ls via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${AI_GID} \
+            --workdir "$HOME/Projects" \
+            cont-ai-nerd /usr/bin/bash -c 'ls -la' > /dev/null
+          echo "PASS: ls works with host-side cwd"
+
+          echo ""
+          echo "PASS: spawn works via host-side paths"
+
+      # ── 21. Test inotify watcher works through symlinked path
+      - name: "Test: inotify watcher works through symlinked path"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          TEST_FILE="inotify_symlink_test"
+
+          echo "--- Creating file via symlinked host path inside container ---"
+          sudo podman exec --user agent cont-ai-nerd touch "$HOME/Projects/${TEST_FILE}"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          for i in $(seq 1 20); do
+            OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE" 2>/dev/null) || true
+            GROUP=$(stat -c '%G' "$PROJECT/$TEST_FILE" 2>/dev/null) || true
+            if [[ "$OWNER" == "$USER" ]] && [[ "$GROUP" == "ai" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          FINAL_OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$PROJECT/$TEST_FILE")
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "ai" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=ai"; exit 1; }
+
+          rm -f "$PROJECT/$TEST_FILE"
+          echo ""
+          echo "PASS: inotify watcher works through symlink"
 
       # ── Diagnostics on failure ─────────────────────────────
       - name: Collect diagnostics
