@@ -159,6 +159,27 @@ let
       exit 1
     fi
 
+    # Ensure OpenCode data directories exist and are owned by the primary user.
+    # The activation script creates these, but may not have run if a prior
+    # nixos-rebuild failed mid-activation (e.g. image build step aborted).
+    # Running as root here (sudo cont-ai-nerd-tui), so we can create and chown.
+    for dir in \
+      "${cfg.primaryHome}/.config/opencode" \
+      "${cfg.primaryHome}/.local/share/opencode" \
+      "${cfg.primaryHome}/.local/share/opencode/log"; do
+      if [[ ! -d "$dir" ]]; then
+        mkdir -p "$dir"
+        chown ${cfg.primaryUser}: "$dir"
+        chmod 750 "$dir"
+      fi
+    done
+    AUTH_FILE="${cfg.primaryHome}/.local/share/opencode/auth.json"
+    if [[ ! -f "$AUTH_FILE" ]]; then
+      echo '{}' > "$AUTH_FILE"
+      chown ${cfg.primaryUser}: "$AUTH_FILE"
+      chmod 640 "$AUTH_FILE"
+    fi
+
     exec ${pkgs.podman}/bin/podman run --rm -it \
       --name cont-ai-nerd-tui-$$ \
       --user "''${AGENT_UID}:''${PRIMARY_GID}" \
