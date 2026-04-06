@@ -1037,7 +1037,10 @@ jobs:
           # Pipe /dev/null to close stdin immediately so podman run --rm -it
           # (which allocates a pseudo-TTY) doesn't block indefinitely in CI.
           # timeout 10 kills it if podman somehow still hangs.
-          OUTPUT=$(sudo -E timeout 10 /usr/local/bin/cont-ai-nerd-tui </dev/null 2>&1 || true)
+          # setsid creates a new session with no controlling terminal so
+          # `podman run -t` fails immediately (not a TTY) rather than hanging.
+          # timeout 10 is a safety net.  || true absorbs all exit codes.
+          OUTPUT=$(sudo setsid timeout 10 /usr/local/bin/cont-ai-nerd-tui 2>&1 || true)
 
           # Should NOT fail with config errors
           if echo "$OUTPUT" | grep -qi "config.*not found"; then
@@ -1105,7 +1108,7 @@ jobs:
           echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
 
           echo "--- Running TUI after dir recovery (expect: no mount errors) ---"
-          OUTPUT=$(sudo -E timeout 10 /usr/local/bin/cont-ai-nerd-tui </dev/null 2>&1 || true)
+          OUTPUT=$(sudo setsid timeout 10 /usr/local/bin/cont-ai-nerd-tui 2>&1 || true)
           echo "    TUI output: $OUTPUT"
 
           if echo "$OUTPUT" | grep -qi "No such file or directory"; then
