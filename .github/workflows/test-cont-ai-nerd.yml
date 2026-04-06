@@ -33,9 +33,21 @@ jobs:
       - name: Unit test — template rendering
         run: bash tests/test-template-rendering.sh
 
-      - name: Install dependencies
+      - name: Run shellcheck
         run: |
           sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -x \
+            scripts/configure.sh \
+            scripts/setup.sh \
+            scripts/prepare-permissions.sh \
+            lib/render-template.sh \
+            lib/cont-ai-nerd-watcher.sh \
+            lib/cont-ai-nerd-commit.sh \
+            container/entrypoint.sh
+
+      - name: Install dependencies
+        run: |
           sudo apt-get install -y podman inotify-tools jq acl
 
       - name: Verify podman version (need >= 4.4 for quadlet)

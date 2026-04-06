@@ -9,11 +9,10 @@
 # =========================================================================
 set -euo pipefail
 
-# shellcheck source-path=SCRIPTDIR
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# shellcheck source=../lib/render-template.sh
+# shellcheck source=lib/render-template.sh
 source "${REPO_ROOT}/lib/render-template.sh"
 
 SYSTEMD_DIR="${REPO_ROOT}/systemd"
