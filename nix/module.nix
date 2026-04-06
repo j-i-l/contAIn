@@ -150,7 +150,10 @@ let
     # Use the primary user's GID — this matches the mapped GID inside the container.
     PRIMARY_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.primaryUser} 2>/dev/null || echo 1000)
 
-    if ! ${pkgs.podman}/bin/podman ps --filter name=cont-ai-nerd --format '{{.Names}}' | grep -q '^cont-ai-nerd$'; then
+    # The container is managed by systemd (rootful podman via Quadlet).
+    # A plain `podman ps` run as an unprivileged user only sees the rootless
+    # namespace and will never find it.  Checking the systemd unit is reliable.
+    if ! systemctl is-active --quiet cont-ai-nerd.service 2>/dev/null; then
       echo "Error: cont-ai-nerd container is not running." >&2
       echo "Start it with: systemctl start cont-ai-nerd" >&2
       exit 1
