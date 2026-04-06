@@ -1075,8 +1075,8 @@ jobs:
           MODE=$(stat -c '%a' "$HOME/.local/share/opencode")
           [[ "$OWNER" == "$USER" ]] || \
             { echo "FAIL: ~/.local/share/opencode owner=$OWNER expected=$USER"; exit 1; }
-          [[ "$MODE" == "750" ]] || \
-            { echo "FAIL: ~/.local/share/opencode mode=$MODE expected=750"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.local/share/opencode mode=$MODE expected=770"; exit 1; }
           echo "    PASS: ~/.local/share/opencode owner=$OWNER mode=$MODE"
 
           echo "--- Verifying ~/.local/share/opencode/auth.json was re-created ---"
@@ -1097,8 +1097,8 @@ jobs:
           MODE=$(stat -c '%a' "$HOME/.config/opencode")
           [[ "$OWNER" == "$USER" ]] || \
             { echo "FAIL: ~/.config/opencode owner=$OWNER expected=$USER"; exit 1; }
-          [[ "$MODE" == "750" ]] || \
-            { echo "FAIL: ~/.config/opencode mode=$MODE expected=750"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.config/opencode mode=$MODE expected=770"; exit 1; }
           echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
 
           echo "--- Running TUI after dir recovery (expect: no mount errors) ---"

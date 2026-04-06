@@ -170,7 +170,7 @@ let
       if [[ ! -d "$dir" ]]; then
         mkdir -p "$dir"
         chown ${cfg.primaryUser}: "$dir"
-        chmod 750 "$dir"
+        chmod 770 "$dir"
       fi
     done
     AUTH_FILE="${cfg.primaryHome}/.local/share/opencode/auth.json"
@@ -330,7 +330,7 @@ in {
             "${cfg.primaryHome}/.local/share/opencode/log"; do
             mkdir -p "$dir"
             chown ${cfg.primaryUser}: "$dir"
-            chmod 750 "$dir"
+            chmod 770 "$dir"
           done
 
           # Ensure auth.json exists (required for bind mount, even if empty)

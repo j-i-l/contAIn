@@ -349,7 +349,7 @@ for dir in \
     echo "    ${dir} exists."
   fi
   chown "${PRIMARY_USER}:" "$dir"
-  chmod 750 "$dir"
+  chmod 770 "$dir"
 done
 
 # Ensure auth.json exists (required for bind mount, even if empty)
