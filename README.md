@@ -67,20 +67,20 @@ cont[AI]*nerd* creates a sandboxed environment where an AI coding agent (OpenCod
 │  │  (e.g., alice)   │     │  (systemd)       │     │  (systemd)      │  │
 │  │                  │     │                  │     │                 │  │
 │  │  - Owns files    │     │  - Monitors      │     │  - Runs daily   │  │
-│  │  - Member of ai  │     │    project dirs  │     │  - Commits      │  │
-│  │    group         │     │  - Fixes perms   │     │    container    │  │
+│  │  - Agent shares  │     │    project dirs  │     │  - Commits      │  │
+│  │    user's group  │     │  - Fixes perms   │     │    container    │  │
 │  └──────────────────┘     └──────────────────┘     └─────────────────┘  │
 │           │                        │                        │           │
 │           │                        │                        │           │
 │           ▼                        ▼                        ▼           │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │           /home/alice/Projects (example, setgid ai)              │   │
+│  │           /home/alice/Projects (example)                          │   │
 │  │                                                                  │   │
-│  │   - Group: ai                                                    │   │
-│  │   - Directories: g+rxs (read/traverse), add g+w for write        │   │
+│  │   - Group: primary user's group (agent shares it)                │   │
+│  │   - Directories: g+x (traverse)                                   │   │
 │  │   - Files: g+r (read), add g+w for write                         │   │
 │  │   - Sensitive files (.env, secrets/): mode 700 (agent blocked)   │   │
-│  │   - .git/: read-only for ai group                                │   │
+│  │   - .git/: read-only for group                                    │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                    │                                    │
 │                                    │ bind mount                         │
@@ -214,7 +214,6 @@ Primary user [alice]:
 Home directory for alice [/home/alice]: 
 Project directories (comma-separated) [/home/alice/Projects]: 
 Container agent username [agent]: 
-Shared group name [ai]: 
 Server listen address [127.0.0.1]: 
 Server listen port [3000]: 
 Installation directory [/opt/cont-ai-nerd]: 
@@ -237,7 +236,6 @@ cat > ~/.config/cont-ai-nerd/config.json << 'EOF'
     "/home/your-username/work"
   ],
   "agent_user": "agent",
-  "agent_group": "ai",
   "host": "127.0.0.1",
   "port": 3000,
   "install_dir": "/opt/cont-ai-nerd"
@@ -256,8 +254,8 @@ sudo ./scripts/setup.sh
 
 The setup script will:
 
-1. **Provision identity** — Create the `agent` user and `ai` group
-2. **Configure permissions** — Set up project directories with setgid
+1. **Provision identity** — Create the `agent` user (sharing the primary user's group)
+2. **Configure permissions** — Set up project directory traversal
 3. **Generate policies** — Create OpenCode permission policies
 4. **Create directories** — Ensure OpenCode config/data directories exist
 5. **Build container** — Build the cont-ai-nerd container image
@@ -386,7 +384,6 @@ The configuration file is located at `~/.config/cont-ai-nerd/config.json`.
 | `primary_home` | string | **Yes** | — | Home directory of the primary user |
 | `project_paths` | array | **Yes** | — | List of directories the agent can access |
 | `agent_user` | string | No | `"agent"` | Username for the container agent |
-| `agent_group` | string | No | `"ai"` | Shared group for file permissions |
 | `host` | string | No | `"127.0.0.1"` | Address the server listens on |
 | `port` | number | No | `3000` | Port the server listens on |
 | `install_dir` | string | No | `"/opt/cont-ai-nerd"` | Where helper scripts are installed |
@@ -403,7 +400,6 @@ The configuration file is located at `~/.config/cont-ai-nerd/config.json`.
     "/home/alice/oss"
   ],
   "agent_user": "agent",
-  "agent_group": "ai",
   "host": "127.0.0.1",
   "port": 3000,
   "install_dir": "/opt/cont-ai-nerd"
@@ -439,15 +435,15 @@ cont[AI]*nerd* uses rootful Podman to create a container that:
 
 ### File Permissions Model
 
-The permissions model gives you full control over what the agent can access. **You opt in** by setting file and directory permissions yourself:
+The permissions model uses standard Unix group permissions. The agent inside the container shares the primary user's group GID directly — no dedicated group is needed. **You opt in** by adding directories to `projectPaths` in the configuration:
 
 ```
 Primary User (e.g., alice)        Agent User (agent)
      │                                  │
-     │   member of                      │   primary group
+     │   primary group                  │   mapped to same GID
      ▼                                  ▼
 ┌─────────────────────────────────────────┐
-│              ai group                   │
+│        Primary user's group             │
 │                                         │
 │  Permission Levels (you choose):        │
 │                                         │
@@ -458,9 +454,9 @@ Primary User (e.g., alice)        Agent User (agent)
 │  └─────────────────────────────────┘    │
 │                                         │
 │  Directory requirements:                │
+│    - g+x   for traverse access          │
 │    - g+rx  for read/traverse access     │
 │    - g+rwx for read/write access        │
-│    - s (setgid) for group inheritance   │
 │                                         │
 └─────────────────────────────────────────┘
 ```
@@ -469,27 +465,25 @@ Primary User (e.g., alice)        Agent User (agent)
 
 | Goal | Command |
 |------|---------|
-| **Read + Write** | `sudo chgrp ai file && sudo chmod g+rw file` |
-| **Read only** | `sudo chgrp ai file && sudo chmod g+r,g-w file` |
-| **Blocked** | Leave group as non-`ai`, or `chmod 600 file` |
+| **Read + Write** | `chmod g+rw file` |
+| **Read only** | `chmod g+r,g-w file` |
+| **Blocked** | `chmod 600 file` |
 
-For directories, add execute and setgid bits:
+For directories, add the execute bit:
 
 ```bash
-# Make directory traversable + inherit ai group for new files
-sudo chgrp ai ~/Projects/myproject
-sudo chmod g+rxs ~/Projects/myproject
+# Make directory traversable
+chmod g+x ~/Projects/myproject
 
 # Recursively grant read+write access
-sudo chgrp -R ai ~/Projects/myproject
-sudo chmod -R g+rw ~/Projects/myproject
-find ~/Projects/myproject -type d -exec chmod g+xs {} \;
+chmod -R g+rw ~/Projects/myproject
+find ~/Projects/myproject -type d -exec chmod g+x {} \;
 ```
 
 **Key aspects:**
 
-1. **Opt-in model** — The agent only accesses files you explicitly grant via group permissions
-2. **Setgid on directories** — New files/directories inherit the `ai` group
+1. **Opt-in model** — By adding a directory to `projectPaths`, you opt in to the agent accessing files in that directory
+2. **Standard group permissions** — The agent shares the primary user's group; no special group is created
 3. **Granular access** — Set permissions per-file based on sensitivity
 4. **`.git/` read-only** — The prepare script sets `.git/` to read-only automatically
 5. **File watcher** — Fixes ownership on files created by the agent
@@ -514,7 +508,7 @@ sudo ./scripts/prepare-permissions.sh --from-config
 | Target | Action | Result |
 |--------|--------|--------|
 | `.git/` directories | `chmod -R g=rX,g-w` | Agent can read history, cannot modify |
-| Other directories | `chgrp ai && chmod g+rxs` | Agent can traverse, new files inherit `ai` group |
+| Other directories | `chmod g+x` | Agent can traverse |
 | Sensitive files | *unchanged by default* | Your existing permissions preserved |
 | Regular files | *unchanged* | Set permissions yourself |
 
@@ -662,16 +656,6 @@ sudo ./scripts/prepare-permissions.sh ~/Projects
 
 This script sets appropriate permissions while protecting sensitive files (`.env`, secrets, keys) and keeping `.git/` read-only.
 
-**Check if user is in the ai group:**
-```bash
-groups
-# Should include 'ai'
-
-# If not, add yourself and re-login:
-sudo usermod -aG ai $USER
-# Then log out and back in
-```
-
 ### TUI Won't Connect
 
 **Ensure the container is running:**
@@ -759,15 +743,8 @@ sudo rm -rf /opt/cont-ai-nerd
 # Remove configuration (optional)
 rm -rf ~/.config/cont-ai-nerd
 
-# Remove the agent user and ai group (optional)
+# Remove the agent user (optional)
 sudo userdel agent
-sudo groupdel ai
-```
-
-**Note:** Removing the `ai` group may affect file permissions in your project directories. You may want to reset group ownership first:
-
-```bash
-sudo chgrp -R $(id -gn) ~/Projects
 ```
 
 ---

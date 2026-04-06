@@ -2,12 +2,8 @@
 # This is a TEMPLATE. setup.sh renders it with concrete values into
 # /etc/containers/systemd/cont-ai-nerd.container
 #
-# Placeholders (sed-replaced by setup.sh):
-#   @@VOLUME_LINES@@     — one Volume= directive per project path
-#   @@PRIMARY_HOME@@     — absolute path to the primary user's home directory
-#   @@CONTAINERD_CONFIG@@— path to ~/.config/cont-ai-nerd on the host
-#   @@HOST@@             — listen address (default 127.0.0.1)
-#   @@PORT@@             — listen port (default 3000)
+# Placeholders (sed/awk-replaced by setup.sh):
+#   VOLUME_LINES, PRIMARY_HOME, CONTAINERD_CONFIG, HOST, PORT
 
 [Unit]
 Description=cont-ai-nerd — Sandboxed AI Agent Container

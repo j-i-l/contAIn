@@ -2,8 +2,13 @@
 # cont-ai-nerd-watcher.sh
 # ---------------------------------------------------------------------------
 # Inotify-based daemon that reassigns ownership of files created by the agent
-# user back to the primary (human) user while preserving group-write access
-# so the agent retains read/write through the 'ai' group.
+# user back to the primary (human) user.
+#
+# Since the agent shares the primary user's GID (mapped inside the container),
+# only the owner needs to be changed — the group is already correct.
+# The watcher also defensively ensures group-write (and setgid on directories)
+# so that permissions are correct regardless of how the file was created
+# (e.g. via entrypoint with umask 002, or via podman exec which inherits 022).
 #
 # Usage: cont-ai-nerd-watcher.sh <primary_user> <agent_user> <dir> [<dir>...]
 # ---------------------------------------------------------------------------
@@ -21,9 +26,8 @@ fi
 
 PRIMARY_UID=$(id -u "$PRIMARY_USER")
 AGENT_UID=$(id -u "$AGENT_USER")
-AI_GID=$(getent group ai | cut -d: -f3)
 
-echo "cont-ai-nerd watcher starting: primary=${PRIMARY_USER}(${PRIMARY_UID}) agent=${AGENT_USER}(${AGENT_UID}) gid=ai(${AI_GID})"
+echo "cont-ai-nerd watcher starting: primary=${PRIMARY_USER}(${PRIMARY_UID}) agent=${AGENT_USER}(${AGENT_UID})"
 echo "Watching: ${WATCH_DIRS[*]}"
 
 # Monitor for file creation and moves (which look like creates to the target).
@@ -40,14 +44,13 @@ while IFS= read -r filepath; do
   file_uid=$(stat -c '%u' "$filepath" 2>/dev/null) || continue
 
   if [[ "$file_uid" == "$AGENT_UID" ]]; then
-    chown "${PRIMARY_UID}:${AI_GID}" "$filepath" 2>/dev/null || true
-    # Preserve group-write so the agent can still modify through 'ai' group.
-    chmod g+w "$filepath" 2>/dev/null || true
-
-    # If a new directory was created, propagate the setgid bit so that
-    # further files created inside it also inherit the 'ai' group.
+    chown "$PRIMARY_UID" "$filepath" 2>/dev/null || true
+    # Defensively ensure group-write (and setgid on directories) regardless
+    # of the umask that was active when the file was created.
     if [[ -d "$filepath" ]]; then
-      chmod g+s "$filepath" 2>/dev/null || true
+      chmod g+ws "$filepath" 2>/dev/null || true
+    else
+      chmod g+w "$filepath" 2>/dev/null || true
     fi
   fi
 done

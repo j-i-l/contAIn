@@ -6,8 +6,8 @@
 #
 # What it does:
 #   0. Checks for config.json (runs configure.sh if missing)
-#   1. Creates the 'agent' system user and 'ai' group
-#   2. Configures project directory permissions (setgid, group-write)
+#   1. Creates the 'agent' system user
+#   2. Ensures project directory traversal permissions (g+x)
 #   3. Creates the cont-ai-nerd config dir and generates opencode.json policy
 #   4. Ensures OpenCode host config/data directories exist
 #   5. Builds the container image
@@ -36,6 +36,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONTAINER_DIR="${REPO_ROOT}/container"
 SYSTEMD_DIR="${REPO_ROOT}/systemd"
 LIB_DIR="${REPO_ROOT}/lib"
+
+# Shared template-rendering functions
+# shellcheck source=lib/render-template.sh
+source "${LIB_DIR}/render-template.sh"
 
 # ── Colors (if terminal supports them) ───────────────────────────────────
 if [[ -t 1 ]]; then
@@ -178,7 +182,6 @@ info "Reading configuration from ${CONFIG_FILE}..."
 PRIMARY_USER=$(jq -r '.primary_user // empty' "$CONFIG_FILE")
 PRIMARY_HOME=$(jq -r '.primary_home // empty' "$CONFIG_FILE")
 AGENT_USER=$(jq -r '.agent_user // "agent"' "$CONFIG_FILE")
-AGENT_GROUP=$(jq -r '.agent_group // "ai"' "$CONFIG_FILE")
 HOST=$(jq -r '.host // "127.0.0.1"' "$CONFIG_FILE")
 PORT=$(jq -r '.port // 3000' "$CONFIG_FILE")
 INSTALL_DIR=$(jq -r '.install_dir // "/opt/cont-ai-nerd"' "$CONFIG_FILE")
@@ -219,6 +222,11 @@ fi
 # ── Derived values ───────────────────────────────────────────────────────
 CONTAINERD_CONFIG="${PRIMARY_HOME}/.config/cont-ai-nerd"
 
+# The agent inside the container shares the primary user's group (mapped GID).
+# This allows the agent to read/write files without a dedicated shared group.
+PRIMARY_GROUP=$(id -gn "$PRIMARY_USER")
+PRIMARY_GID=$(id -g "$PRIMARY_USER")
+
 # Compute common parent and container-side paths for /workspace mounts
 COMMON_PARENT=$(find_common_parent "${PROJECT_PATHS[@]}")
 declare -A CONTAINER_PATHS
@@ -231,8 +239,8 @@ echo "================================================================="
 echo "  cont-ai-nerd — Podman Setup"
 echo "================================================================="
 echo "  Primary user  : ${PRIMARY_USER} (home: ${PRIMARY_HOME})"
+echo "  Primary group : ${PRIMARY_GROUP} (GID: ${PRIMARY_GID})"
 echo "  Agent user    : ${AGENT_USER}"
-echo "  Agent group   : ${AGENT_GROUP}"
 echo "  Project paths : ${PROJECT_PATHS[*]}"
 echo "  Common parent : ${COMMON_PARENT}"
 echo "  Config dir    : ${CONTAINERD_CONFIG}"
@@ -261,28 +269,22 @@ PATH_MAP_JSON+="}"
 
 jq --argjson pm "$PATH_MAP_JSON" '.path_map = $pm' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
 mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-chown "${PRIMARY_USER}:${AGENT_GROUP}" "$CONFIG_FILE"
+chown "${PRIMARY_USER}:" "$CONFIG_FILE"
 chmod 640 "$CONFIG_FILE"
 echo "    path_map: ${PATH_MAP_JSON}"
 
-# ── 1. Identity & group provisioning ─────────────────────────────────────
+# ── 1. Identity provisioning ─────────────────────────────────────────────
 echo "==> [1/8] Provisioning identity..."
 
-groupadd -f "${AGENT_GROUP}"
-
 if ! id "${AGENT_USER}" &>/dev/null; then
-  useradd -r -g "${AGENT_GROUP}" -s /usr/sbin/nologin "${AGENT_USER}"
+  useradd -r -s /usr/sbin/nologin "${AGENT_USER}"
   echo "    Created system user: ${AGENT_USER}"
 else
   echo "    User ${AGENT_USER} already exists."
 fi
 
-usermod -aG "${AGENT_GROUP}" "${PRIMARY_USER}" 2>/dev/null || true
-echo "    ${PRIMARY_USER} is a member of group ${AGENT_GROUP}"
-
 AGENT_UID=$(id -u "${AGENT_USER}")
-AI_GID=$(getent group "${AGENT_GROUP}" | cut -d: -f3)
-echo "    agent UID=${AGENT_UID}  ai GID=${AI_GID}"
+echo "    agent UID=${AGENT_UID}  primary GID=${PRIMARY_GID} (${PRIMARY_GROUP})"
 
 # ── 2. Project directory permissions ─────────────────────────────────────
 echo ""
@@ -291,15 +293,15 @@ echo "==> [2/8] Configuring project directory permissions..."
 for PROJECT_PATH in "${PROJECT_PATHS[@]}"; do
   if [[ ! -d "$PROJECT_PATH" ]]; then
     mkdir -p "$PROJECT_PATH"
-    chown "${PRIMARY_USER}:${AGENT_GROUP}" "$PROJECT_PATH"
+    chown "${PRIMARY_USER}:" "$PROJECT_PATH"
     echo "    Created ${PROJECT_PATH}"
   fi
 
-  # Group ownership → ai; setgid so new entries inherit the group.
-  chgrp -R "${AGENT_GROUP}" "$PROJECT_PATH"
-  find "$PROJECT_PATH" -type d -exec chmod g+rwxs {} +
-  find "$PROJECT_PATH" -type f -exec chmod g+rw {} +
-  echo "    Configured ${PROJECT_PATH}  (group=${AGENT_GROUP}, setgid)"
+  # Ensure directories are group-traversable (g+x) so the agent can
+  # navigate via the mapped GID. File permissions are left as-is —
+  # the primary user's default umask determines agent access.
+  find "$PROJECT_PATH" -type d ! -perm -g+x -exec chmod g+x {} +
+  echo "    Ensured g+x on directories in ${PROJECT_PATH}"
 done
 
 # ── 3. cont-ai-nerd config & opencode.json policy ────────────────────────
@@ -307,7 +309,7 @@ echo ""
 echo "==> [3/8] Generating cont-ai-nerd config..."
 
 mkdir -p "${CONTAINERD_CONFIG}"
-chown "${PRIMARY_USER}:${AGENT_GROUP}" "${CONTAINERD_CONFIG}"
+chown "${PRIMARY_USER}:" "${CONTAINERD_CONFIG}"
 chmod 750 "${CONTAINERD_CONFIG}"
 
 # Generate external_directory policy — allows the agent to access exactly
@@ -328,7 +330,7 @@ POLICY_FILE="${CONTAINERD_CONFIG}/opencode.json"
   echo '  }'
   echo '}'
 } > "${POLICY_FILE}"
-chown "${PRIMARY_USER}:${AGENT_GROUP}" "${POLICY_FILE}"
+chown "${PRIMARY_USER}:" "${POLICY_FILE}"
 chmod 640 "${POLICY_FILE}"
 echo "    Generated ${POLICY_FILE}"
 
@@ -346,8 +348,8 @@ for dir in \
   else
     echo "    ${dir} exists."
   fi
-  chown "${PRIMARY_USER}:${AGENT_GROUP}" "$dir"
-  chmod 770 "$dir"
+  chown "${PRIMARY_USER}:" "$dir"
+  chmod 750 "$dir"
 done
 
 # Ensure auth.json exists (required for bind mount, even if empty)
@@ -356,7 +358,7 @@ if [[ ! -f "$AUTH_FILE" ]]; then
   echo '{}' > "$AUTH_FILE"
   echo "    Created ${AUTH_FILE} (placeholder)"
 fi
-chown "${PRIMARY_USER}:${AGENT_GROUP}" "$AUTH_FILE"
+chown "${PRIMARY_USER}:" "$AUTH_FILE"
 chmod 640 "$AUTH_FILE"
 
 # ── 5. Build the container image ─────────────────────────────────────────
@@ -365,7 +367,8 @@ echo "==> [5/8] Building container image..."
 
 podman build \
   --build-arg "AGENT_UID=${AGENT_UID}" \
-  --build-arg "AGENT_GID=${AI_GID}" \
+  --build-arg "AGENT_GID=${PRIMARY_GID}" \
+  --build-arg "AGENT_GROUP_NAME=${PRIMARY_GROUP}" \
   -t localhost/cont-ai-nerd:latest \
   -f "${CONTAINER_DIR}/Containerfile" \
   "${CONTAINER_DIR}"
@@ -393,22 +396,23 @@ echo "==> [7/8] Installing systemd units..."
 mkdir -p "${QUADLET_DIR}"
 
 # Build the Volume= lines for project paths using /workspace container paths.
-VOLUME_LINES=""
+HOST_PATHS=""
+CONT_PATHS=""
 for p in "${PROJECT_PATHS[@]}"; do
-  container_path="${CONTAINER_PATHS[$p]}"
-  VOLUME_LINES+="Volume=${p}:${container_path}:rw,Z"$'\n'
+  HOST_PATHS+="${p}"$'\n'
+  CONT_PATHS+="${CONTAINER_PATHS[$p]}"$'\n'
 done
-# Remove trailing newline for clean substitution.
-VOLUME_LINES="${VOLUME_LINES%$'\n'}"
+HOST_PATHS="${HOST_PATHS%$'\n'}"
+CONT_PATHS="${CONT_PATHS%$'\n'}"
+VOLUME_LINES=$(build_volume_lines "$HOST_PATHS" "$CONT_PATHS")
 
-# sed handles scalar placeholders; awk handles the multi-line @@VOLUME_LINES@@.
-sed \
-  -e "s|@@PRIMARY_HOME@@|${PRIMARY_HOME}|g" \
-  -e "s|@@CONTAINERD_CONFIG@@|${CONTAINERD_CONFIG}|g" \
-  -e "s|@@HOST@@|${HOST}|g" \
-  -e "s|@@PORT@@|${PORT}|g" \
-  "${SYSTEMD_DIR}/cont-ai-nerd.container.in" | \
-  awk -v lines="$VOLUME_LINES" '{gsub(/@@VOLUME_LINES@@/, lines); print}' \
+render_container_unit \
+  "${SYSTEMD_DIR}/cont-ai-nerd.container.in" \
+  "${PRIMARY_HOME}" \
+  "${CONTAINERD_CONFIG}" \
+  "${HOST}" \
+  "${PORT}" \
+  "${VOLUME_LINES}" \
   > "${QUADLET_DIR}/cont-ai-nerd.container"
 
 echo "    Installed ${QUADLET_DIR}/cont-ai-nerd.container"
@@ -420,20 +424,20 @@ for p in "${PROJECT_PATHS[@]}"; do
 done
 WATCH_DIRS_ESCAPED="${WATCH_DIRS_ESCAPED% }"
 
-sed \
-  -e "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" \
-  -e "s|@@PRIMARY_USER@@|${PRIMARY_USER}|g" \
-  -e "s|@@AGENT_USER@@|${AGENT_USER}|g" \
-  -e "s|@@WATCH_DIRS@@|${WATCH_DIRS_ESCAPED}|g" \
+render_watcher_unit \
   "${SYSTEMD_DIR}/cont-ai-nerd-watcher.service.in" \
+  "${INSTALL_DIR}" \
+  "${PRIMARY_USER}" \
+  "${AGENT_USER}" \
+  "${WATCH_DIRS_ESCAPED}" \
   > /etc/systemd/system/cont-ai-nerd-watcher.service
 
 echo "    Installed cont-ai-nerd-watcher.service"
 
 # --- Commit service ---
-sed \
-  -e "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" \
+render_commit_service \
   "${SYSTEMD_DIR}/cont-ai-nerd-commit.service" \
+  "${INSTALL_DIR}" \
   > /etc/systemd/system/cont-ai-nerd-commit.service
 
 echo "    Installed cont-ai-nerd-commit.service"

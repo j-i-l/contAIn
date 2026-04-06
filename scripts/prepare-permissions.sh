@@ -3,16 +3,16 @@
 # =========================================================================
 # This script prepares project directories for use with cont-ai-nerd by:
 #
-#   1. Making directories traversable (g+rxs) so the agent can navigate
-#   2. Setting .git/ directories to read-only for the ai group
+#   1. Making directories traversable (g+x) so the agent can navigate
+#   2. Setting .git/ directories to read-only for the group
 #   3. Optionally locking sensitive files/dirs (with --lock-sensitive)
 #
-# The script does NOT modify individual file permissions. You control what
-# the agent can read/write by setting permissions yourself:
+# The agent shares the primary user's GID (mapped inside the container),
+# so standard group permissions control access. No special group is needed.
 #
-#   Agent read+write : chgrp ai file && chmod g+rw file
-#   Agent read-only  : chgrp ai file && chmod g+r,g-w file
-#   Agent blocked    : leave group as non-ai, or chmod g= file
+#   Agent can read   : files with g+r under project directories (default)
+#   Agent can write  : files with g+w (agent creates files with umask 002)
+#   Agent blocked    : chmod g= file, or chmod 600 file
 #
 # Usage:
 #   sudo ./prepare-permissions.sh [OPTIONS] <directory> [<directory>...]
@@ -45,7 +45,7 @@ info()  { echo -e "${GREEN}[INFO]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 error() { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 die()   { error "$@"; exit 1; }
-debug() { [[ "${VERBOSE:-false}" == "true" ]] && echo -e "${DIM}[DEBUG] $*${RESET}" || true; }
+debug() { if [[ "${VERBOSE:-false}" == "true" ]]; then echo -e "${DIM}[DEBUG] $*${RESET}"; fi; }
 
 # ── Sensitive patterns ───────────────────────────────────────────────────
 # Files and directories matching these patterns can optionally be locked
@@ -137,7 +137,6 @@ DRY_RUN=false
 VERBOSE=false
 FROM_CONFIG=false
 LOCK_SENSITIVE=""  # "", "yes", or "no"
-AGENT_GROUP="ai"
 DIRECTORIES=()
 
 # ── Usage ────────────────────────────────────────────────────────────────
@@ -148,14 +147,13 @@ Usage: $(basename "$0") [OPTIONS] <directory> [<directory>...]
 
 Make project directories traversable for the cont-ai-nerd agent.
 
-This script sets directories to g+rxs (traversable with setgid) and .git/
-to read-only. It does NOT modify individual file permissions — you control
-what the agent can access by setting file permissions yourself.
+This script ensures directories have g+x (traversable) and sets .git/
+to read-only. It does NOT modify individual file permissions — the agent
+accesses files via the primary user's mapped group permissions.
 
 Options:
   --dry-run           Show what would be changed without making changes
   --verbose, -v       Show detailed output
-  --group <name>      Specify the agent group (default: ai)
   --from-config       Read project paths from ~/.config/cont-ai-nerd/config.json
   --lock-sensitive    Lock sensitive files (600) and dirs (700) without prompting
   --no-lock-sensitive Skip sensitive file handling without prompting
@@ -181,10 +179,6 @@ while [[ $# -gt 0 ]]; do
     --verbose|-v)
       VERBOSE=true
       shift
-      ;;
-    --group)
-      AGENT_GROUP="$2"
-      shift 2
       ;;
     --from-config)
       FROM_CONFIG=true
@@ -234,10 +228,6 @@ if [[ "$FROM_CONFIG" == "true" ]]; then
   readarray -t CONFIG_PATHS < <(jq -r '.project_paths[]' "$CONFIG_FILE")
   DIRECTORIES+=("${CONFIG_PATHS[@]}")
   
-  # Read agent group from config
-  CONFIG_GROUP=$(jq -r '.agent_group // "ai"' "$CONFIG_FILE")
-  AGENT_GROUP="${CONFIG_GROUP}"
-  
   info "Loaded ${#CONFIG_PATHS[@]} paths from ${CONFIG_FILE}"
 fi
 
@@ -246,11 +236,6 @@ if [[ ${#DIRECTORIES[@]} -eq 0 ]]; then
   error "No directories specified."
   echo ""
   usage
-fi
-
-# Check group exists
-if ! getent group "$AGENT_GROUP" &>/dev/null; then
-  die "Group '${AGENT_GROUP}' does not exist. Run setup.sh first."
 fi
 
 # Validate directories exist
@@ -400,18 +385,17 @@ process_directory() {
       continue
     fi
     
-    # Check if group is already the agent group
-    local current_group
-    current_group=$(stat -c '%G' "$dir")
-    if [[ "$current_group" == "$AGENT_GROUP" ]]; then
-      debug "    Skipping (group already ${AGENT_GROUP}): $dir"
+    # Check if already group-traversable
+    local current_perms
+    current_perms=$(stat -c '%A' "$dir")
+    if [[ "${current_perms:6:1}" == "x" ]] || [[ "${current_perms:6:1}" == "s" ]]; then
+      debug "    Skipping (already g+x): $dir"
       STATS_DIRS_SKIPPED=$((STATS_DIRS_SKIPPED + 1))
       continue
     fi
     
-    debug "    Setting dir g+rxs: $dir"
-    run_cmd chgrp "$AGENT_GROUP" "$dir"
-    run_cmd chmod g+rxs "$dir"
+    debug "    Setting dir g+x: $dir"
+    run_cmd chmod g+x "$dir"
     STATS_DIRS_TRAVERSABLE=$((STATS_DIRS_TRAVERSABLE + 1))
   done < <(find "$root" -type d -print0 2>/dev/null || true)
 }
@@ -480,7 +464,6 @@ echo -e "${BOLD}================================================================
 echo -e "${BOLD}  cont-ai-nerd — Permission Preparation${RESET}"
 echo -e "${BOLD}=================================================================${RESET}"
 echo ""
-echo "  Agent group     : ${AGENT_GROUP}"
 echo "  Directories     : ${DIRECTORIES[*]}"
 echo "  Dry run         : ${DRY_RUN}"
 echo ""
@@ -528,7 +511,7 @@ echo ""
 echo "  Statistics:"
 echo "    .git/ dirs set read-only          : ${STATS_GIT_READONLY}"
 echo "    Directories made traversable      : ${STATS_DIRS_TRAVERSABLE}"
-echo "    Directories skipped (already ai)  : ${STATS_DIRS_SKIPPED}"
+echo "    Directories skipped (already g+x) : ${STATS_DIRS_SKIPPED}"
 if [[ $STATS_SENSITIVE_FOUND -gt 0 ]]; then
   echo "    Sensitive items found             : ${STATS_SENSITIVE_FOUND}"
   echo "    Sensitive items locked            : ${STATS_SENSITIVE_LOCKED}"

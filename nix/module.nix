@@ -7,7 +7,7 @@ let
 
   # Compute the common parent directory of all project paths.
   # This is used to strip the prefix and mount under /workspace.
-  # Example: ["/home/alice/Projects" "/home/alice/work"] → "/home/alice"
+  # Example: ["/home/alice/Projects" "/home/alice/work"] -> "/home/alice"
   findCommonParent = paths:
     let
       # Split each path into components
@@ -43,7 +43,7 @@ let
   getContainerPath = hostPath:
     if hostPath == commonParent then
       # Single path case: hostPath equals commonParent, use basename
-      # e.g., /home/alice/Projects → /workspace/Projects
+      # e.g., /home/alice/Projects -> /workspace/Projects
       "/workspace/${builtins.baseNameOf hostPath}"
     else
       let
@@ -63,7 +63,6 @@ let
     project_paths = cfg.projectPaths;
     path_map      = containerPaths;
     agent_user    = cfg.agent.user;
-    agent_group   = cfg.agent.group;
     host          = cfg.server.host;
     port          = cfg.server.port;
     install_dir   = "${scripts}/lib/cont-ai-nerd";
@@ -131,7 +130,9 @@ let
     WantedBy=multi-user.target
   '';
 
-  # TUI wrapper script that runs a separate container with rw auth mount
+  # TUI wrapper script that runs a separate container with rw auth mount.
+  # Uses the primary user's GID so the TUI process has the same group
+  # permissions as the main container agent.
   tuiScript = pkgs.writeShellScriptBin "cont-ai-nerd-tui" ''
     set -euo pipefail
 
@@ -146,7 +147,8 @@ let
     PORT=$(${pkgs.jq}/bin/jq -r '.port // 3000' "$CONFIG")
 
     AGENT_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
-    AGENT_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.agent.user} 2>/dev/null || echo 1001)
+    # Use the primary user's GID — this matches the mapped GID inside the container.
+    PRIMARY_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.primaryUser} 2>/dev/null || echo 1000)
 
     if ! ${pkgs.podman}/bin/podman ps --filter name=cont-ai-nerd --format '{{.Names}}' | grep -q '^cont-ai-nerd$'; then
       echo "Error: cont-ai-nerd container is not running." >&2
@@ -156,7 +158,7 @@ let
 
     exec ${pkgs.podman}/bin/podman run --rm -it \
       --name cont-ai-nerd-tui-$$ \
-      --user "''${AGENT_UID}:''${AGENT_GID}" \
+      --user "''${AGENT_UID}:''${PRIMARY_GID}" \
       --network host \
       -v "${cfg.primaryHome}/.local/share/opencode:/home/agent/.local/share/opencode:rw" \
       -v "${cfg.primaryHome}/.config/opencode:/home/agent/.config/opencode:ro" \
@@ -181,13 +183,17 @@ in {
       type        = lib.types.path;
       description = "Home directory of the primary user.";
       default     = "/home/${config.services.cont-ai-nerd.primaryUser}";
-      defaultText = lib.literalExpression ''"/home/\${cfg.primaryUser}"'';
+      defaultText = lib.literalExpression ''"/home/''${cfg.primaryUser}"'';
       example     = "/home/alice";
     };
 
     projectPaths = lib.mkOption {
       type        = lib.types.listOf lib.types.path;
-      description = "Directories the agent is allowed to read and write.";
+      description = ''
+        Directories the agent is allowed to access. By setting these paths,
+        you opt in to letting the agent read and write files within them
+        (subject to standard Unix group permissions).
+      '';
       example     = [ "/home/alice/Projects" "/home/alice/work" ];
     };
 
@@ -196,12 +202,6 @@ in {
         type        = lib.types.str;
         default     = "agent";
         description = "Username for the container agent.";
-      };
-
-      group = lib.mkOption {
-        type        = lib.types.str;
-        default     = "ai";
-        description = "Shared group granting the agent file access.";
       };
     };
 
@@ -248,17 +248,19 @@ in {
     # Ensure short image names (e.g., ubuntu:24.04) resolve to docker.io
     virtualisation.containers.registries.search = [ "docker.io" ];
 
-    # -- Users & groups --
-    users.groups.${cfg.agent.group} = {};
-
+    # -- Users --
+    # The agent is a system user on the host (used only for UID mapping).
+    # Its host-side group is irrelevant — inside the container, the agent's
+    # GID is mapped to the primary user's GID.
     users.users.${cfg.agent.user} = {
       isSystemUser = true;
-      group        = cfg.agent.group;
+      group        = cfg.agent.user;
       shell        = pkgs.shadow + "/bin/nologin";
       description  = "cont-ai-nerd container agent";
     };
 
-    users.users.${cfg.primaryUser}.extraGroups = [ cfg.agent.group ];
+    # Auto-create the agent's own group on the host (NixOS requirement for system users).
+    users.groups.${cfg.agent.user} = {};
 
     # -- Packages available on the host --
     environment.systemPackages = [
@@ -284,17 +286,17 @@ in {
         text = ''
           CONFIG_DIR="${cfg.primaryHome}/.config/cont-ai-nerd"
           mkdir -p "$CONFIG_DIR"
-          chown ${cfg.primaryUser}:${cfg.agent.group} "$CONFIG_DIR"
+          chown ${cfg.primaryUser}: "$CONFIG_DIR"
           chmod 750 "$CONFIG_DIR"
 
           # config.json - generated from NixOS module options
           cp --no-preserve=mode ${configJson} "$CONFIG_DIR/config.json"
-          chown ${cfg.primaryUser}:${cfg.agent.group} "$CONFIG_DIR/config.json"
+          chown ${cfg.primaryUser}: "$CONFIG_DIR/config.json"
           chmod 640 "$CONFIG_DIR/config.json"
 
           # opencode.json - external_directory policy
           cp --no-preserve=mode ${opencodePolicy} "$CONFIG_DIR/opencode.json"
-          chown ${cfg.primaryUser}:${cfg.agent.group} "$CONFIG_DIR/opencode.json"
+          chown ${cfg.primaryUser}: "$CONFIG_DIR/opencode.json"
           chmod 640 "$CONFIG_DIR/opencode.json"
 
           # OpenCode config & data directories
@@ -303,19 +305,19 @@ in {
             "${cfg.primaryHome}/.local/share/opencode" \
             "${cfg.primaryHome}/.local/share/opencode/log"; do
             mkdir -p "$dir"
-            chown ${cfg.primaryUser}:${cfg.agent.group} "$dir"
-            chmod 770 "$dir"
+            chown ${cfg.primaryUser}: "$dir"
+            chmod 750 "$dir"
           done
 
           # Ensure auth.json exists (required for bind mount, even if empty)
           AUTH_FILE="${cfg.primaryHome}/.local/share/opencode/auth.json"
           if [ ! -f "$AUTH_FILE" ]; then
             echo '{}' > "$AUTH_FILE"
-            chown ${cfg.primaryUser}:${cfg.agent.group} "$AUTH_FILE"
+            chown ${cfg.primaryUser}: "$AUTH_FILE"
             chmod 640 "$AUTH_FILE"
           fi
         '';
-        deps = [ "users" "groups" ];
+        deps = [ "users" ];
       };
 
       # Build / rebuild the container image when needed.
@@ -335,12 +337,15 @@ in {
              ! ${pkgs.podman}/bin/podman image exists localhost/cont-ai-nerd:latest 2>/dev/null; then
 
             AGENT_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
-            AGENT_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.agent.user} 2>/dev/null || echo 1001)
+            # Use the primary user's GID and group name for the container.
+            PRIMARY_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.primaryUser} 2>/dev/null || echo 1000)
+            PRIMARY_GROUP=$(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser} 2>/dev/null || echo users)
 
             echo "cont-ai-nerd: building container image..."
             ${pkgs.podman}/bin/podman build \
               --build-arg "AGENT_UID=$AGENT_UID" \
-              --build-arg "AGENT_GID=$AGENT_GID" \
+              --build-arg "AGENT_GID=$PRIMARY_GID" \
+              --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
               --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
               -t localhost/cont-ai-nerd:latest \
               -f "$CONTAINER_DIR/Containerfile" \
@@ -352,17 +357,17 @@ in {
             echo "cont-ai-nerd: container image up to date."
           fi
         '';
-        deps = [ "cont-ai-nerd-dirs" "users" "groups" ];
+        deps = [ "cont-ai-nerd-dirs" "users" ];
       };
 
       # Set up project directory permissions.
+      # Only ensures directories are group-traversable (g+x) so the agent
+      # can navigate via the mapped GID. File permissions are left as-is.
       cont-ai-nerd-permissions = {
         text = ''
           ${lib.concatMapStringsSep "\n" (p: ''
             if [ -d "${p}" ]; then
-              ${pkgs.coreutils}/bin/chgrp -R ${cfg.agent.group} "${p}"
-              ${pkgs.findutils}/bin/find "${p}" -type d -exec chmod g+rwxs {} +
-              ${pkgs.findutils}/bin/find "${p}" -type f -exec chmod g+rw {} +
+              ${pkgs.findutils}/bin/find "${p}" -type d ! -perm -g+x -exec chmod g+x {} +
             fi
           '') cfg.projectPaths}
         '';
@@ -377,7 +382,7 @@ in {
       wants       = [ "cont-ai-nerd.service" ];
       wantedBy    = [ "multi-user.target" ];
 
-      path = [ pkgs.coreutils pkgs.inotify-tools pkgs.shadow ];
+      path = [ pkgs.coreutils pkgs.inotify-tools ];
 
       serviceConfig = {
         Type       = "simple";

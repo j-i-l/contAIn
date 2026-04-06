@@ -25,6 +25,11 @@
 #   - The agent user can traverse these directories but cannot create files
 #     or read anything that isn't part of the /workspace mount.
 #
+# Umask:
+#   Sets umask 002 so agent-created files are 664 (group-writable) and
+#   directories are 775. This ensures the primary user retains full access
+#   to files the agent creates, via their shared group.
+#
 # =========================================================================
 set -eu
 
@@ -46,13 +51,24 @@ if [ "$(id -u)" = "0" ] && [ -f "$CONFIG" ]; then
   done
 fi
 
+# ── Set umask for agent-created files ─────────────────────────────────────
+# umask 002 → files are 664 (rw-rw-r--), dirs are 775 (rwxrwxr-x).
+# This ensures the primary user can always read and write files created by
+# the agent via group permissions (since agent shares the primary user's GID).
+umask 002
+
 # ── Drop privileges and exec opencode ────────────────────────────────────
 # If already running as non-root (e.g., podman run --user agent), skip setpriv.
 # Otherwise, drop from root to the agent user.
 if [ "$(id -u)" = "0" ]; then
   AGENT_UID="$(id -u agent 2>/dev/null || echo 1001)"
   AGENT_GID="$(id -g agent 2>/dev/null || echo 1001)"
+  AGENT_HOME="$(getent passwd agent 2>/dev/null | cut -d: -f6)"
+  AGENT_HOME="${AGENT_HOME:-/home/agent}"
   exec setpriv --reuid="$AGENT_UID" --regid="$AGENT_GID" --init-groups \
+    env HOME="$AGENT_HOME" \
+        XDG_CONFIG_HOME="$AGENT_HOME/.config" \
+        XDG_DATA_HOME="$AGENT_HOME/.local/share" \
     opencode "$@"
 else
   exec opencode "$@"
