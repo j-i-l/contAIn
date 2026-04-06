@@ -112,6 +112,35 @@ jobs:
           # Answer 'Y' to use existing configuration
           echo "Y" | sudo -E ./scripts/setup.sh
 
+      - name: "Debug: GID mapping in container"
+        if: always()
+        run: |
+          PRIMARY_GID=$(id -g "$USER")
+          echo "=== Host side ==="
+          echo "USER=$USER"
+          id "$USER"
+          echo "PRIMARY_GID=$PRIMARY_GID"
+
+          echo ""
+          echo "=== Container: id agent ==="
+          sudo podman run --rm --entrypoint id \
+            localhost/cont-ai-nerd:latest agent 2>&1 || echo "(failed)"
+
+          echo ""
+          echo "=== Container: getent group by GID ==="
+          sudo podman run --rm --entrypoint getent \
+            localhost/cont-ai-nerd:latest group "$PRIMARY_GID" 2>&1 || echo "(not found)"
+
+          echo ""
+          echo "=== Container: /etc/group ==="
+          sudo podman run --rm --entrypoint cat \
+            localhost/cont-ai-nerd:latest /etc/group 2>&1 || echo "(failed)"
+
+          echo ""
+          echo "=== Container: /etc/passwd (agent) ==="
+          sudo podman run --rm --entrypoint sh \
+            localhost/cont-ai-nerd:latest -c "grep agent /etc/passwd" 2>&1 || echo "(not found)"
+
       - name: "Debug: Quadlet generator output"
         if: always()
         run: |
