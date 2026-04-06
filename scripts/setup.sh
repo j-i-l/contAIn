@@ -37,6 +37,10 @@ CONTAINER_DIR="${REPO_ROOT}/container"
 SYSTEMD_DIR="${REPO_ROOT}/systemd"
 LIB_DIR="${REPO_ROOT}/lib"
 
+# Shared template-rendering functions
+# shellcheck source=../lib/render-template.sh
+source "${LIB_DIR}/render-template.sh"
+
 # ── Colors (if terminal supports them) ───────────────────────────────────
 if [[ -t 1 ]]; then
   BOLD='\033[1m'
@@ -392,22 +396,23 @@ echo "==> [7/8] Installing systemd units..."
 mkdir -p "${QUADLET_DIR}"
 
 # Build the Volume= lines for project paths using /workspace container paths.
-VOLUME_LINES=""
+HOST_PATHS=""
+CONT_PATHS=""
 for p in "${PROJECT_PATHS[@]}"; do
-  container_path="${CONTAINER_PATHS[$p]}"
-  VOLUME_LINES+="Volume=${p}:${container_path}:rw,Z"$'\n'
+  HOST_PATHS+="${p}"$'\n'
+  CONT_PATHS+="${CONTAINER_PATHS[$p]}"$'\n'
 done
-# Remove trailing newline for clean substitution.
-VOLUME_LINES="${VOLUME_LINES%$'\n'}"
+HOST_PATHS="${HOST_PATHS%$'\n'}"
+CONT_PATHS="${CONT_PATHS%$'\n'}"
+VOLUME_LINES=$(build_volume_lines "$HOST_PATHS" "$CONT_PATHS")
 
-# sed handles scalar placeholders; awk handles the multi-line @@VOLUME_LINES@@.
-sed \
-  -e "s|@@PRIMARY_HOME@@|${PRIMARY_HOME}|g" \
-  -e "s|@@CONTAINERD_CONFIG@@|${CONTAINERD_CONFIG}|g" \
-  -e "s|@@HOST@@|${HOST}|g" \
-  -e "s|@@PORT@@|${PORT}|g" \
-  "${SYSTEMD_DIR}/cont-ai-nerd.container.in" | \
-  awk -v lines="$VOLUME_LINES" '{gsub(/@@VOLUME_LINES@@/, lines); print}' \
+render_container_unit \
+  "${SYSTEMD_DIR}/cont-ai-nerd.container.in" \
+  "${PRIMARY_HOME}" \
+  "${CONTAINERD_CONFIG}" \
+  "${HOST}" \
+  "${PORT}" \
+  "${VOLUME_LINES}" \
   > "${QUADLET_DIR}/cont-ai-nerd.container"
 
 echo "    Installed ${QUADLET_DIR}/cont-ai-nerd.container"
@@ -419,20 +424,20 @@ for p in "${PROJECT_PATHS[@]}"; do
 done
 WATCH_DIRS_ESCAPED="${WATCH_DIRS_ESCAPED% }"
 
-sed \
-  -e "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" \
-  -e "s|@@PRIMARY_USER@@|${PRIMARY_USER}|g" \
-  -e "s|@@AGENT_USER@@|${AGENT_USER}|g" \
-  -e "s|@@WATCH_DIRS@@|${WATCH_DIRS_ESCAPED}|g" \
+render_watcher_unit \
   "${SYSTEMD_DIR}/cont-ai-nerd-watcher.service.in" \
+  "${INSTALL_DIR}" \
+  "${PRIMARY_USER}" \
+  "${AGENT_USER}" \
+  "${WATCH_DIRS_ESCAPED}" \
   > /etc/systemd/system/cont-ai-nerd-watcher.service
 
 echo "    Installed cont-ai-nerd-watcher.service"
 
 # --- Commit service ---
-sed \
-  -e "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" \
+render_commit_service \
   "${SYSTEMD_DIR}/cont-ai-nerd-commit.service" \
+  "${INSTALL_DIR}" \
   > /etc/systemd/system/cont-ai-nerd-commit.service
 
 echo "    Installed cont-ai-nerd-commit.service"
