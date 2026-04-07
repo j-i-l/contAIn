@@ -17,7 +17,7 @@ on:
       - "lib/**"
       - "tests/**"
       - ".github/workflows/test-cont-ai-nerd.yml"
-  workflow_dispatch:
+  # workflow_dispatch:
 
 jobs:
   test-full:
