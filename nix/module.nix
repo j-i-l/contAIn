@@ -136,6 +136,8 @@ let
   # TUI wrapper script that attaches to the running container.
   # All data (auth, database, model preferences) is persisted via the
   # container's read-write bind mounts — no separate container needed.
+  # Runs as the agent user (not root) so files the TUI writes are owned
+  # by agent:primary_group and group-writable (umask 002).
   tuiScript = pkgs.writeShellScriptBin "cont-ai-nerd-tui" ''
     set -euo pipefail
 
@@ -145,7 +147,12 @@ let
       exit 1
     fi
 
-    exec ${pkgs.podman}/bin/podman exec -it cont-ai-nerd opencode-tui "$@"
+    exec ${pkgs.podman}/bin/podman exec -it --user agent \
+      -e HOME=/home/agent \
+      -e XDG_CONFIG_HOME=/home/agent/.config \
+      -e XDG_DATA_HOME=/home/agent/.local/share \
+      -e XDG_STATE_HOME=/home/agent/.local/state \
+      cont-ai-nerd sh -c 'umask 002 && exec opencode-tui "$@"' -- "$@"
   '';
 
 in {
@@ -294,9 +301,20 @@ in {
           AUTH_FILE="${cfg.primaryHome}/.local/share/opencode/auth.json"
           if [ ! -f "$AUTH_FILE" ]; then
             echo '{}' > "$AUTH_FILE"
-            chown ${cfg.primaryUser}: "$AUTH_FILE"
-            chmod 640 "$AUTH_FILE"
           fi
+          chown ${cfg.primaryUser}: "$AUTH_FILE"
+          chmod 660 "$AUTH_FILE"
+
+          # Fix ownership and permissions on existing data/state files.
+          # This handles upgrades from older setups where files may have been
+          # created with wrong UID/GID or restrictive permissions.
+          for dir in \
+            "${cfg.primaryHome}/.local/share/opencode" \
+            "${cfg.primaryHome}/.local/state/opencode"; do
+            ${pkgs.findutils}/bin/find "$dir" -not -group $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) -exec ${pkgs.coreutils}/bin/chgrp $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) {} + 2>/dev/null || true
+            ${pkgs.findutils}/bin/find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
+            ${pkgs.findutils}/bin/find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
+          done
         '';
         deps = [ "users" ];
       };

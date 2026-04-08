@@ -360,7 +360,19 @@ if [[ ! -f "$AUTH_FILE" ]]; then
   echo "    Created ${AUTH_FILE} (placeholder)"
 fi
 chown "${PRIMARY_USER}:" "$AUTH_FILE"
-chmod 640 "$AUTH_FILE"
+chmod 660 "$AUTH_FILE"
+
+# Fix ownership and permissions on existing data/state files.
+# This handles upgrades from older setups where files may have been
+# created with wrong UID/GID or restrictive permissions.
+for dir in \
+  "${PRIMARY_HOME}/.local/share/opencode" \
+  "${PRIMARY_HOME}/.local/state/opencode"; do
+  find "$dir" -not -group "${PRIMARY_GROUP}" -exec chgrp "${PRIMARY_GROUP}" {} + 2>/dev/null || true
+  find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
+  find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
+done
+echo "    Ensured group-write permissions on data & state directories"
 
 # ── 5. Build the container image ─────────────────────────────────────────
 echo ""
@@ -474,8 +486,7 @@ echo "================================================================="
 echo "  cont-ai-nerd setup complete."
 echo ""
 echo "  Container : podman ps | grep cont-ai-nerd"
-echo "  TUI (rw)  : sudo cont-ai-nerd-tui        # can run /connect"
-echo "  TUI (ro)  : podman exec -it cont-ai-nerd opencode-tui"
+echo "  TUI       : sudo cont-ai-nerd-tui"
 echo "  Watcher   : systemctl status cont-ai-nerd-watcher"
 echo "  Commits   : systemctl list-timers cont-ai-nerd-commit"
 echo "  Logs      : journalctl -u cont-ai-nerd -f"
