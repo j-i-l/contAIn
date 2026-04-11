@@ -372,11 +372,11 @@ podman build \
   --build-arg "AGENT_UID=${AGENT_UID}" \
   --build-arg "AGENT_GID=${PRIMARY_GID}" \
   --build-arg "AGENT_GROUP_NAME=${PRIMARY_GROUP}" \
-  -t localhost/contAIn:latest \
+  -t localhost/contain:latest \
   -f "${CONTAINER_DIR}/Containerfile" \
   "${CONTAINER_DIR}"
 
-echo "    Image built: localhost/contAIn:latest"
+echo "    Image built: localhost/contain:latest"
 
 # ── 6. Install helper scripts ─────────────────────────────────────────────
 echo ""

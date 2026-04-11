@@ -11,7 +11,7 @@ After=network-online.target
 
 [Container]
 ContainerName=contAIn
-Image=localhost/contAIn:latest
+Image=localhost/contain:latest
 
 # The entrypoint runs as root to create host-path symlinks,
 # then drops to the agent user via setpriv.

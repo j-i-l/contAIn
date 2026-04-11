@@ -9,7 +9,7 @@
 set -euo pipefail
 
 CONTAINER_NAME="contAIn"
-IMAGE_NAME="localhost/contAIn"
+IMAGE_NAME="localhost/contain"
 KEEP_TAGS=5
 
 # Nothing to do if the container is not running.

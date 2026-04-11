@@ -89,7 +89,7 @@ let
 
     [Container]
     ContainerName=contain
-    Image=localhost/contAIn:latest
+    Image=localhost/contain:latest
 
     # The entrypoint runs as root to create host-path symlinks,
     # then drops to the agent user via setpriv.
@@ -324,7 +324,7 @@ in {
           fi
 
           if [ "$CURRENT_HASH" != "$STORED_HASH" ] || \
-             ! ${pkgs.podman}/bin/podman image exists localhost/contAIn:latest 2>/dev/null; then
+             ! ${pkgs.podman}/bin/podman image exists localhost/contain:latest 2>/dev/null; then
 
             AGENT_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
             # Use the primary user's GID and group name for the container.
@@ -337,7 +337,7 @@ in {
               --build-arg "AGENT_GID=$PRIMARY_GID" \
               --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
               --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
-              -t localhost/contAIn:latest \
+              -t localhost/contain:latest \
               -f "$CONTAINER_DIR/Containerfile" \
               "$CONTAINER_DIR"
 

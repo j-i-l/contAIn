@@ -187,9 +187,9 @@ jobs:
 
           echo "--- Checking container image UIDs match host ---"
           IMG_UID=$(sudo podman run --rm --entrypoint id \
-            localhost/contAIn:latest -u agent)
+            localhost/contain:latest -u agent)
           IMG_GID=$(sudo podman run --rm --entrypoint id \
-            localhost/contAIn:latest -g agent)
+            localhost/contain:latest -g agent)
 
           [[ "$AGENT_UID" == "$IMG_UID" ]] || \
             { echo "FAIL: agent UID mismatch host=$AGENT_UID img=$IMG_UID"; exit 1; }
@@ -240,14 +240,14 @@ jobs:
           sudo podman run --rm \
             -v "${CONFIG}:/etc/contain/config.json:ro" \
             --entrypoint cat \
-            localhost/contAIn:latest /etc/contain/config.json | jq -e '.primary_user'
+            localhost/contain:latest /etc/contain/config.json | jq -e '.primary_user'
 
           echo "--- Checking config.json content matches host ---"
           HOST_USER=$(jq -r '.primary_user' "$CONFIG")
           CONTAINER_USER=$(sudo podman run --rm \
             -v "${CONFIG}:/etc/contain/config.json:ro" \
             --entrypoint jq \
-            localhost/contAIn:latest -r '.primary_user' /etc/contain/config.json)
+            localhost/contain:latest -r '.primary_user' /etc/contain/config.json)
 
           [[ "$HOST_USER" == "$CONTAINER_USER" ]] || \
             { echo "FAIL: config mismatch host=$HOST_USER container=$CONTAINER_USER"; exit 1; }
@@ -259,23 +259,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "--- Checking image exists ---"
-          sudo podman image exists localhost/contAIn:latest
+          sudo podman image exists localhost/contain:latest
 
           echo "--- Checking opencode binary ---"
           sudo podman run --rm --entrypoint which \
-            localhost/contAIn:latest opencode
+            localhost/contain:latest opencode
 
           echo "--- Checking /opt/tools/bin in PATH ---"
           sudo podman run --rm --entrypoint sh \
-            localhost/contAIn:latest -c 'echo $PATH' | grep -q '/opt/tools/bin'
+            localhost/contain:latest -c 'echo $PATH' | grep -q '/opt/tools/bin'
 
           echo "--- Checking /etc/contain directory ---"
           sudo podman run --rm --entrypoint ls \
-            localhost/contAIn:latest -la /etc/contain
+            localhost/contain:latest -la /etc/contain
 
           echo "--- Checking opencode-tui wrapper exists ---"
           sudo podman run --rm --entrypoint which \
-            localhost/contAIn:latest opencode-tui
+            localhost/contain:latest opencode-tui
 
           echo "PASS: container image"
 
@@ -292,7 +292,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${CONFIG}:/etc/contain/config.json:ro" \
             --entrypoint test \
-            localhost/contAIn:latest -x /usr/local/bin/opencode-tui
+            localhost/contain:latest -x /usr/local/bin/opencode-tui
 
           echo "--- Checking opencode-tui reads config (expect: error without server) ---"
           # The script should try to connect but fail (no server running)
@@ -301,7 +301,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${CONFIG}:/etc/contain/config.json:ro" \
             --entrypoint opencode-tui \
-            localhost/contAIn:latest 2>&1 || true)
+            localhost/contain:latest 2>&1 || true)
 
           # Should mention the connection attempt, not a config error
           if echo "$OUTPUT" | grep -qi "config file not found"; then
@@ -456,7 +456,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID}
             -v ${PROJECT}:${WORKSPACE}:rw
             --entrypoint cat
-            localhost/contAIn:latest"
+            localhost/contain:latest"
 
           echo ""
           echo "--- Testing file_660 (group rw, expect: readable) ---"
@@ -499,7 +499,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'agent-was-here' >> '${WORKSPACE}/file_660'"
 
           grep -q 'agent-was-here' "$PROJECT/file_660" \
@@ -511,7 +511,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'should-fail' >> '${WORKSPACE}/file_600'" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to 600"
             exit 1
@@ -537,7 +537,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint chmod \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             666 "${WORKSPACE}/file_600" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to chmod 600 file"
             exit 1
@@ -558,7 +558,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint chmod \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             777 "${WORKSPACE}/file_660" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to chmod file it doesn't own"
             exit 1
@@ -572,7 +572,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint chown \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             "${AGENT_UID}:${PRIMARY_GID}" "${WORKSPACE}/file_600" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to chown"
             exit 1
@@ -606,7 +606,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint cat \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to read 600 file"
             exit 1
@@ -619,7 +619,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${PROJECT}:${WORKSPACE}:rw" \
             --entrypoint chmod \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             660 "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to chmod"
             exit 1
@@ -758,7 +758,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${CONTAINERD_CONFIG}/opencode.json:/etc/contain/opencode.json:ro" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'tamper' >> /etc/contain/opencode.json" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to config"
             exit 1
@@ -771,7 +771,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "$HOME/.local/share/opencode:/home/agent/.local/share/opencode:ro" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'tamper' >> /home/agent/.local/share/opencode/auth.json" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to auth data"
             exit 1
@@ -784,7 +784,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "$HOME/.config/opencode:/home/agent/.config/opencode:ro" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'tamper' >> /home/agent/.config/opencode/opencode.json" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to global config"
             exit 1
@@ -928,7 +928,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint cat \
-            localhost/contAIn:latest "${WORKSPACE_TEST}/.git/HEAD" > /dev/null || \
+            localhost/contain:latest "${WORKSPACE_TEST}/.git/HEAD" > /dev/null || \
             { echo "FAIL: agent should be able to read .git/HEAD"; exit 1; }
           echo "PASS: agent can read .git/HEAD"
 
@@ -937,7 +937,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'tamper' >> '${WORKSPACE_TEST}/.git/HEAD'" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to .git/HEAD"
             exit 1
@@ -949,7 +949,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint cat \
-            localhost/contAIn:latest "${WORKSPACE_TEST}/main.py" > /dev/null || \
+            localhost/contain:latest "${WORKSPACE_TEST}/main.py" > /dev/null || \
             { echo "FAIL: agent should be able to read main.py"; exit 1; }
           echo "PASS: agent can read main.py"
 
@@ -958,7 +958,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo '# comment' >> '${WORKSPACE_TEST}/main.py'" || \
             { echo "FAIL: agent should be able to write to main.py"; exit 1; }
           echo "PASS: agent can write to main.py"
@@ -968,7 +968,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint cat \
-            localhost/contAIn:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
+            localhost/contain:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
             { echo "FAIL: agent should be able to read readonly.txt"; exit 1; }
           echo "PASS: agent can read readonly.txt"
 
@@ -977,7 +977,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
             --entrypoint sh \
-            localhost/contAIn:latest \
+            localhost/contain:latest \
             -c "echo 'tamper' >> '${WORKSPACE_TEST}/readonly.txt'" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to readonly.txt"
             exit 1
@@ -1025,7 +1025,7 @@ jobs:
             --user ${AGENT_UID}:${PRIMARY_GID} \
             -v "${TEST_DIR2}:${WORKSPACE_TEST2}:rw" \
             --entrypoint cat \
-            localhost/contAIn:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
+            localhost/contain:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to read locked .env"
             exit 1
           fi
