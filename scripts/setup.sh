@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — cont-ai-nerd: rootful podman deployment
+# setup.sh — contain: rootful podman deployment
 # =========================================================================
 # Idempotent setup script. Safe to re-run at any time to converge to the
 # desired state.  Every step is a no-op when the system already matches.
@@ -8,7 +8,7 @@
 #   0. Checks for config.json (runs configure.sh if missing)
 #   1. Creates the 'agent' system user
 #   2. Ensures project directory traversal permissions (g+x)
-#   3. Creates the cont-ai-nerd config dir and generates opencode.json policy
+#   3. Creates the contain config dir and generates opencode.json policy
 #   4. Ensures OpenCode host config/data directories exist
 #   5. Builds the container image
 #   6. Installs helper scripts
@@ -19,7 +19,7 @@
 #   sudo ./setup.sh
 #
 # Configuration:
-#   All settings are read from ~/.config/cont-ai-nerd/config.json
+#   All settings are read from ~/.config/contain/config.json
 #   Run ./configure.sh first to create the configuration file, or
 #   setup.sh will invoke it automatically if no config exists.
 #
@@ -134,7 +134,7 @@ if [[ -z "$DETECTED_USER" ]]; then
 fi
 
 DETECTED_HOME=$(eval echo "~${DETECTED_USER}")
-CONFIG_FILE="${DETECTED_HOME}/.config/cont-ai-nerd/config.json"
+CONFIG_FILE="${DETECTED_HOME}/.config/contain/config.json"
 
 # ── Configuration file handling ──────────────────────────────────────────
 run_configure() {
@@ -184,7 +184,7 @@ PRIMARY_HOME=$(jq -r '.primary_home // empty' "$CONFIG_FILE")
 AGENT_USER=$(jq -r '.agent_user // "agent"' "$CONFIG_FILE")
 HOST=$(jq -r '.host // "127.0.0.1"' "$CONFIG_FILE")
 PORT=$(jq -r '.port // 3000' "$CONFIG_FILE")
-INSTALL_DIR=$(jq -r '.install_dir // "/opt/cont-ai-nerd"' "$CONFIG_FILE")
+INSTALL_DIR=$(jq -r '.install_dir // "/opt/contain"' "$CONFIG_FILE")
 
 # Read project_paths as a bash array
 readarray -t PROJECT_PATHS < <(jq -r '.project_paths[]' "$CONFIG_FILE")
@@ -220,7 +220,7 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [[ "$PORT" -lt 1 ]] || [[ "$PORT" -gt 65535 ]]
 fi
 
 # ── Derived values ───────────────────────────────────────────────────────
-CONTAINERD_CONFIG="${PRIMARY_HOME}/.config/cont-ai-nerd"
+CONTAINERD_CONFIG="${PRIMARY_HOME}/.config/contain"
 
 # The agent inside the container shares the primary user's group (mapped GID).
 # This allows the agent to read/write files without a dedicated shared group.
@@ -236,7 +236,7 @@ done
 
 echo ""
 echo "================================================================="
-echo "  cont-ai-nerd — Podman Setup"
+echo "  contain — Podman Setup"
 echo "================================================================="
 echo "  Primary user  : ${PRIMARY_USER} (home: ${PRIMARY_HOME})"
 echo "  Primary group : ${PRIMARY_GROUP} (GID: ${PRIMARY_GID})"
@@ -304,9 +304,9 @@ for PROJECT_PATH in "${PROJECT_PATHS[@]}"; do
   echo "    Ensured g+x on directories in ${PROJECT_PATH}"
 done
 
-# ── 3. cont-ai-nerd config & opencode.json policy ────────────────────────
+# ── 3. contain config & opencode.json policy ────────────────────────
 echo ""
-echo "==> [3/8] Generating cont-ai-nerd config..."
+echo "==> [3/8] Generating contain config..."
 
 mkdir -p "${CONTAINERD_CONFIG}"
 chown "${PRIMARY_USER}:" "${CONTAINERD_CONFIG}"
@@ -341,7 +341,6 @@ echo "==> [4/8] Ensuring OpenCode config & data directories exist..."
 for dir in \
   "${PRIMARY_HOME}/.config/opencode" \
   "${PRIMARY_HOME}/.local/share/opencode" \
-  "${PRIMARY_HOME}/.local/share/opencode/log" \
   "${PRIMARY_HOME}/.local/state/opencode"; do
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir"
@@ -353,14 +352,17 @@ for dir in \
   chmod 770 "$dir"
 done
 
-# Ensure auth.json exists (OpenCode expects it, even if empty)
-AUTH_FILE="${PRIMARY_HOME}/.local/share/opencode/auth.json"
-if [[ ! -f "$AUTH_FILE" ]]; then
-  echo '{}' > "$AUTH_FILE"
-  echo "    Created ${AUTH_FILE} (placeholder)"
-fi
-chown "${PRIMARY_USER}:" "$AUTH_FILE"
-chmod 640 "$AUTH_FILE"
+# Fix ownership and permissions on existing data/state files.
+# This handles upgrades from older setups where files may have been
+# created with wrong UID/GID or restrictive permissions.
+for dir in \
+  "${PRIMARY_HOME}/.local/share/opencode" \
+  "${PRIMARY_HOME}/.local/state/opencode"; do
+  find "$dir" -not -group "${PRIMARY_GROUP}" -exec chgrp "${PRIMARY_GROUP}" {} + 2>/dev/null || true
+  find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
+  find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
+done
+echo "    Ensured group-write permissions on data & state directories"
 
 # ── 5. Build the container image ─────────────────────────────────────────
 echo ""
@@ -370,24 +372,24 @@ podman build \
   --build-arg "AGENT_UID=${AGENT_UID}" \
   --build-arg "AGENT_GID=${PRIMARY_GID}" \
   --build-arg "AGENT_GROUP_NAME=${PRIMARY_GROUP}" \
-  -t localhost/cont-ai-nerd:latest \
+  -t localhost/contain:latest \
   -f "${CONTAINER_DIR}/Containerfile" \
   "${CONTAINER_DIR}"
 
-echo "    Image built: localhost/cont-ai-nerd:latest"
+echo "    Image built: localhost/contain:latest"
 
 # ── 6. Install helper scripts ─────────────────────────────────────────────
 echo ""
 echo "==> [6/8] Installing scripts to ${INSTALL_DIR}..."
 
 mkdir -p "${INSTALL_DIR}"
-install -m 755 "${LIB_DIR}/cont-ai-nerd-watcher.sh"  "${INSTALL_DIR}/"
-install -m 755 "${LIB_DIR}/cont-ai-nerd-commit.sh"   "${INSTALL_DIR}/"
-install -m 755 "${LIB_DIR}/cont-ai-nerd-tui.sh"      "${INSTALL_DIR}/"
+install -m 755 "${LIB_DIR}/contain-watcher.sh"  "${INSTALL_DIR}/"
+install -m 755 "${LIB_DIR}/contain-commit.sh"   "${INSTALL_DIR}/"
+install -m 755 "${LIB_DIR}/contain-tui.sh"      "${INSTALL_DIR}/"
 
 # Symlink TUI script to /usr/local/bin for easy access
-ln -sf "${INSTALL_DIR}/cont-ai-nerd-tui.sh" /usr/local/bin/cont-ai-nerd-tui
-echo "    Installed cont-ai-nerd-tui → /usr/local/bin/cont-ai-nerd-tui"
+ln -sf "${INSTALL_DIR}/contain-tui.sh" /usr/local/bin/contain-tui
+echo "    Installed contain-tui → /usr/local/bin/contain-tui"
 
 # ── 7. Render & install systemd units ─────────────────────────────────────
 echo ""
@@ -408,15 +410,15 @@ CONT_PATHS="${CONT_PATHS%$'\n'}"
 VOLUME_LINES=$(build_volume_lines "$HOST_PATHS" "$CONT_PATHS")
 
 render_container_unit \
-  "${SYSTEMD_DIR}/cont-ai-nerd.container.in" \
+  "${SYSTEMD_DIR}/contain.container.in" \
   "${PRIMARY_HOME}" \
   "${CONTAINERD_CONFIG}" \
   "${HOST}" \
   "${PORT}" \
   "${VOLUME_LINES}" \
-  > "${QUADLET_DIR}/cont-ai-nerd.container"
+  > "${QUADLET_DIR}/contain.container"
 
-echo "    Installed ${QUADLET_DIR}/cont-ai-nerd.container"
+echo "    Installed ${QUADLET_DIR}/contain.container"
 
 # --- Watcher service ---
 WATCH_DIRS_ESCAPED=""
@@ -426,28 +428,28 @@ done
 WATCH_DIRS_ESCAPED="${WATCH_DIRS_ESCAPED% }"
 
 render_watcher_unit \
-  "${SYSTEMD_DIR}/cont-ai-nerd-watcher.service.in" \
+  "${SYSTEMD_DIR}/contain-watcher.service.in" \
   "${INSTALL_DIR}" \
   "${PRIMARY_USER}" \
   "${AGENT_USER}" \
   "${WATCH_DIRS_ESCAPED}" \
-  > /etc/systemd/system/cont-ai-nerd-watcher.service
+  > /etc/systemd/system/contain-watcher.service
 
-echo "    Installed cont-ai-nerd-watcher.service"
+echo "    Installed contain-watcher.service"
 
 # --- Commit service ---
 render_commit_service \
-  "${SYSTEMD_DIR}/cont-ai-nerd-commit.service" \
+  "${SYSTEMD_DIR}/contain-commit.service" \
   "${INSTALL_DIR}" \
-  > /etc/systemd/system/cont-ai-nerd-commit.service
+  > /etc/systemd/system/contain-commit.service
 
-echo "    Installed cont-ai-nerd-commit.service"
+echo "    Installed contain-commit.service"
 
 # --- Commit timer (no templating needed) ---
-cp "${SYSTEMD_DIR}/cont-ai-nerd-commit.timer" \
-   /etc/systemd/system/cont-ai-nerd-commit.timer
+cp "${SYSTEMD_DIR}/contain-commit.timer" \
+   /etc/systemd/system/contain-commit.timer
 
-echo "    Installed cont-ai-nerd-commit.timer"
+echo "    Installed contain-commit.timer"
 
 # ── 8. Activate ──────────────────────────────────────────────────────────
 echo ""
@@ -457,26 +459,25 @@ systemctl daemon-reload
 
 # Stop existing instances gracefully before (re)starting.
 # These are no-ops on first run (services don't exist yet).
-systemctl stop cont-ai-nerd-watcher.service 2>/dev/null || true
-systemctl stop cont-ai-nerd.service 2>/dev/null || true
+systemctl stop contain-watcher.service 2>/dev/null || true
+systemctl stop contain.service 2>/dev/null || true
 
 # Quadlet-generated units cannot be "enabled" — they're transient.
 # The [Install] section in the .container file handles WantedBy.
 # Just start the service; it will auto-start on boot via the generator.
-systemctl start cont-ai-nerd.service
+systemctl start contain.service
 
 # These are regular unit files in /etc/systemd/system, so enable works:
-systemctl enable --now cont-ai-nerd-watcher.service
-systemctl enable --now cont-ai-nerd-commit.timer
+systemctl enable --now contain-watcher.service
+systemctl enable --now contain-commit.timer
 
 echo ""
 echo "================================================================="
-echo "  cont-ai-nerd setup complete."
+echo "  contain setup complete."
 echo ""
-echo "  Container : podman ps | grep cont-ai-nerd"
-echo "  TUI (rw)  : sudo cont-ai-nerd-tui        # can run /connect"
-echo "  TUI (ro)  : podman exec -it cont-ai-nerd opencode-tui"
-echo "  Watcher   : systemctl status cont-ai-nerd-watcher"
-echo "  Commits   : systemctl list-timers cont-ai-nerd-commit"
-echo "  Logs      : journalctl -u cont-ai-nerd -f"
+echo "  Container : podman ps | grep contain"
+echo "  TUI       : sudo contain-tui"
+echo "  Watcher   : systemctl status contain-watcher"
+echo "  Commits   : systemctl list-timers contain-commit"
+echo "  Logs      : journalctl -u contain -f"
 echo "================================================================="

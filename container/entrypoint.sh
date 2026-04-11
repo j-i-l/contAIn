@@ -1,13 +1,14 @@
 #!/bin/sh
-# entrypoint.sh — cont-ai-nerd container entrypoint
+# entrypoint.sh — contain container entrypoint
 # =========================================================================
 # This script runs as root at container startup. It:
 #
-#   1. Reads path_map from /etc/cont-ai-nerd/config.json
+#   1. Reads path_map from /etc/contain/config.json
 #   2. Creates symlinks from host-side paths to their /workspace equivalents
 #      so that OpenCode clients can use host-side paths as working directories
-#   3. Drops privileges to the agent user
-#   4. Execs opencode with the original arguments
+#   3. Ensures required subdirectories exist inside bind-mounted volumes
+#   4. Drops privileges to the agent user
+#   5. Execs opencode with the original arguments
 #
 # Why symlinks?
 #   OpenCode clients (neovim plugin, TUI) connect with the host-side project
@@ -33,7 +34,7 @@
 # =========================================================================
 set -eu
 
-CONFIG="/etc/cont-ai-nerd/config.json"
+CONFIG="/etc/contain/config.json"
 
 # ── Create symlinks from host paths to /workspace paths ──────────────────
 # Only attempt symlink creation if running as root (normal startup).
@@ -49,6 +50,14 @@ if [ "$(id -u)" = "0" ] && [ -f "$CONFIG" ]; then
     # Create or update the symlink
     ln -sfn "$container_path" "$host_path"
   done
+fi
+
+# ── Ensure required subdirectories exist inside bind-mounted volumes ──────
+# The host bind mount over ~/.local/share/opencode hides directories created
+# at image build time. Create any subdirectories OpenCode expects here.
+if [ "$(id -u)" = "0" ]; then
+  mkdir -p /home/agent/.local/share/opencode/log
+  chown agent: /home/agent/.local/share/opencode/log
 fi
 
 # ── Set umask for agent-created files ─────────────────────────────────────
