@@ -19,9 +19,9 @@ set -euo pipefail
 # Use systemctl is-active rather than `podman ps` because the container is
 # managed as a rootful service; an unprivileged `podman ps` only sees the
 # rootless namespace and would always report the container as not running.
-if ! systemctl is-active --quiet contAIn.service; then
+if ! systemctl is-active --quiet contain.service; then
   echo "Error: contain container is not running." >&2
-  echo "Start it with: systemctl start contAIn" >&2
+  echo "Start it with: systemctl start contain" >&2
   exit 1
 fi
 

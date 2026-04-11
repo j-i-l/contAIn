@@ -10,7 +10,7 @@ Description=contain — Sandboxed AI Agent Container
 After=network-online.target
 
 [Container]
-ContainerName=contAIn
+ContainerName=contain
 Image=localhost/contain:latest
 
 # The entrypoint runs as root to create host-path symlinks,

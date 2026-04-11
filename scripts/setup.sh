@@ -410,15 +410,15 @@ CONT_PATHS="${CONT_PATHS%$'\n'}"
 VOLUME_LINES=$(build_volume_lines "$HOST_PATHS" "$CONT_PATHS")
 
 render_container_unit \
-  "${SYSTEMD_DIR}/contAIn.container.in" \
+  "${SYSTEMD_DIR}/contain.container.in" \
   "${PRIMARY_HOME}" \
   "${CONTAINERD_CONFIG}" \
   "${HOST}" \
   "${PORT}" \
   "${VOLUME_LINES}" \
-  > "${QUADLET_DIR}/contAIn.container"
+  > "${QUADLET_DIR}/contain.container"
 
-echo "    Installed ${QUADLET_DIR}/contAIn.container"
+echo "    Installed ${QUADLET_DIR}/contain.container"
 
 # --- Watcher service ---
 WATCH_DIRS_ESCAPED=""
@@ -460,12 +460,12 @@ systemctl daemon-reload
 # Stop existing instances gracefully before (re)starting.
 # These are no-ops on first run (services don't exist yet).
 systemctl stop contain-watcher.service 2>/dev/null || true
-systemctl stop contAIn.service 2>/dev/null || true
+systemctl stop contain.service 2>/dev/null || true
 
 # Quadlet-generated units cannot be "enabled" — they're transient.
 # The [Install] section in the .container file handles WantedBy.
 # Just start the service; it will auto-start on boot via the generator.
-systemctl start contAIn.service
+systemctl start contain.service
 
 # These are regular unit files in /etc/systemd/system, so enable works:
 systemctl enable --now contain-watcher.service
@@ -475,9 +475,9 @@ echo ""
 echo "================================================================="
 echo "  contain setup complete."
 echo ""
-echo "  Container : podman ps | grep contAIn"
+echo "  Container : podman ps | grep contain"
 echo "  TUI       : sudo contain-tui"
 echo "  Watcher   : systemctl status contain-watcher"
 echo "  Commits   : systemctl list-timers contain-commit"
-echo "  Logs      : journalctl -u contAIn -f"
+echo "  Logs      : journalctl -u contain -f"
 echo "================================================================="

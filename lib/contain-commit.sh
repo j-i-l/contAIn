@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-CONTAINER_NAME="contAIn"
+CONTAINER_NAME="contain"
 IMAGE_NAME="localhost/contain"
 KEEP_TAGS=5
 

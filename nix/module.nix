@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.services.contAIn;
+  cfg = config.services.contain;
 
   scripts = pkgs.callPackage ./scripts.nix {};
 

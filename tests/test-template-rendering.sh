@@ -96,7 +96,7 @@ VOLUME_LINES_1=$(build_volume_lines \
   "/workspace/Projects")
 
 RENDERED_1=$(render_container_unit \
-  "${SYSTEMD_DIR}/contAIn.container.in" \
+  "${SYSTEMD_DIR}/contain.container.in" \
   "/home/alice" \
   "/home/alice/.config/contain" \
   "127.0.0.1" \
@@ -128,7 +128,7 @@ VOLUME_LINES_3=$(build_volume_lines \
 /workspace/shared")
 
 RENDERED_3=$(render_container_unit \
-  "${SYSTEMD_DIR}/contAIn.container.in" \
+  "${SYSTEMD_DIR}/contain.container.in" \
   "/home/bob" \
   "/home/bob/.config/contain" \
   "0.0.0.0" \
@@ -158,7 +158,7 @@ VOLUME_LINES_SPACE=$(build_volume_lines \
   "/workspace/My Projects/app")
 
 RENDERED_SPACE=$(render_container_unit \
-  "${SYSTEMD_DIR}/contAIn.container.in" \
+  "${SYSTEMD_DIR}/contain.container.in" \
   "/home/user" \
   "/home/user/.config/contain" \
   "127.0.0.1" \

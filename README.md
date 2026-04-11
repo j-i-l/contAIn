@@ -87,7 +87,7 @@ contAIn creates a sandboxed environment where an AI coding agent (OpenCode) can:
 │                                    ▼                                    │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                    PODMAN CONTAINER                              │   │
-│  │                    (contain)                                │   │
+│  │                    (contAIn)                                │   │
 │  ├──────────────────────────────────────────────────────────────────┤   │
 │  │                                                                  │   │
 │  │  ┌────────────────────────────────────────────────────────────┐  │   │
@@ -272,11 +272,11 @@ Upon completion, you'll see:
 =================================================================
   contain setup complete.
 
-   Container : podman ps | grep contain
+   Container : podman ps | grep contAIn
    TUI       : sudo contain-tui
    Watcher   : systemctl status contain-watcher
    Commits   : systemctl list-timers contain-commit
-   Logs      : journalctl -u contain -f
+   Logs      : journalctl -u contAIn -f
 =================================================================
 ```
 
@@ -312,17 +312,17 @@ sudo contain-tui --dir /workspace/Projects/myproject
 
 ```bash
 # View running container
-podman ps | grep contain
+podman ps | grep contAIn
 
 # Detailed container info
-podman inspect contain
+podman inspect contAIn
 ```
 
 #### Check Service Status
 
 ```bash
 # Container service (via systemd generator)
-systemctl status contain
+systemctl status contAIn
 
 # File watcher service
 systemctl status contain-watcher
@@ -335,7 +335,7 @@ systemctl list-timers contain-commit
 
 ```bash
 # Container logs (follow mode)
-journalctl -u contain -f
+journalctl -u contAIn -f
 
 # File watcher logs
 journalctl -u contain-watcher -f
@@ -520,7 +520,7 @@ contAIn installs three systemd components:
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| `contain.service` | Quadlet (generated) | Runs the container |
+| `contAIn.service` | Quadlet (generated) | Runs the container |
 | `contain-watcher.service` | Service | Monitors files, fixes permissions |
 | `contain-commit.timer` | Timer | Triggers periodic container commits |
 
@@ -605,8 +605,8 @@ OpenCode credentials are stored in `~/.local/share/opencode/auth.json` on the ho
 
 **Check the service status:**
 ```bash
-systemctl status contain
-journalctl -u contain -n 50
+systemctl status contAIn
+journalctl -u contAIn -n 50
 ```
 
 **Common causes:**
@@ -636,17 +636,17 @@ This script sets appropriate permissions while protecting sensitive files (`.env
 
 **Ensure the container is running:**
 ```bash
-podman ps | grep contain
+podman ps | grep contAIn
 ```
 
 **Check the server is listening:**
 ```bash
-podman exec contain ss -tlnp | grep 3000
+podman exec contAIn ss -tlnp | grep 3000
 ```
 
 **Try restarting the container:**
 ```bash
-sudo systemctl restart contain
+sudo systemctl restart contAIn
 ```
 
 ### File Watcher Not Working
@@ -669,7 +669,7 @@ sudo apt install inotify-tools  # Ubuntu
 
 **Verify credentials are mounted:**
 ```bash
-sudo podman exec contain ls -la /home/agent/.local/share/opencode/
+sudo podman exec contAIn ls -la /home/agent/.local/share/opencode/
 ```
 
 **Re-authenticate using the TUI:**
@@ -696,7 +696,7 @@ To completely remove contAIn:
 # Stop and disable services
 sudo systemctl stop contain-watcher
 sudo systemctl stop contain-commit.timer
-sudo systemctl stop contain
+sudo systemctl stop contAIn
 sudo systemctl disable contain-watcher
 sudo systemctl disable contain-commit.timer
 
@@ -704,11 +704,11 @@ sudo systemctl disable contain-commit.timer
 sudo rm /etc/systemd/system/contain-watcher.service
 sudo rm /etc/systemd/system/contain-commit.service
 sudo rm /etc/systemd/system/contain-commit.timer
-sudo rm /etc/containers/systemd/contain.container
+sudo rm /etc/containers/systemd/contAIn.container
 sudo systemctl daemon-reload
 
 # Remove the container and image
-sudo podman rm -f contain
+sudo podman rm -f contAIn
 sudo podman rmi localhost/contain:latest
 
 # Remove helper scripts
@@ -780,7 +780,7 @@ shellcheck scripts/*.sh lib/*.sh container/*.sh
 # Test the full setup process
 sudo ./scripts/configure.sh
 sudo ./scripts/setup.sh
-podman exec -it contain opencode-tui
+podman exec -it contAIn opencode-tui
 ```
 
 ### Reporting Issues
@@ -789,7 +789,7 @@ When reporting bugs, please include:
 
 - Operating system and version
 - Podman version (`podman --version`)
-- Relevant log output (`journalctl -u contain`)
+- Relevant log output (`journalctl -u contAIn`)
 - Steps to reproduce
 
 ---

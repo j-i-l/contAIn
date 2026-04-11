@@ -3,7 +3,7 @@
 #          --build-arg AGENT_UID=<uid> \
 #          --build-arg AGENT_GID=<primary_gid> \
 #          --build-arg AGENT_GROUP_NAME=<primary_group> \
-#          -t contAIn:latest .
+#          -t contain:latest .
 FROM ubuntu:24.04
 
 ARG AGENT_UID

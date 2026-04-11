@@ -346,7 +346,7 @@ jobs:
           echo "--- Waiting for container to start (up to 30s) ---"
           CONTAINER_RUNNING=false
           for i in $(seq 1 30); do
-            if sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contain$'; then
+            if sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contAIn; then
               echo "    Container running after ${i}s"
               CONTAINER_RUNNING=true
               break
@@ -358,23 +358,23 @@ jobs:
             echo "FAIL: Container did not start within 30s"
             echo ""
             echo "--- systemctl status ---"
-            systemctl status contain.service --no-pager 2>&1 || true
+            systemctl status contAIn.service --no-pager 2>&1 || true
             echo ""
             echo "--- journalctl ---"
-            journalctl -u contain --no-pager -n 50 2>&1 || true
+            journalctl -u contAIn --no-pager -n 50 2>&1 || true
             exit 1
           fi
 
           echo "--- Checking container health status ---"
           # The container should have a healthcheck defined
-          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+          HEALTH=$(sudo podman inspect contAIn --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
           echo "    Health status: $HEALTH"
 
           # Allow some time for healthcheck to run
           sleep 15
 
           echo "--- Checking health status after 15s ---"
-          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+          HEALTH=$(sudo podman inspect contAIn --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
           echo "    Health status: $HEALTH"
 
           # Note: The container may not be healthy if OpenCode needs credentials
@@ -411,7 +411,7 @@ jobs:
 
             # Check container logs for more info
             echo "--- Container logs (last 20 lines) ---"
-            sudo podman logs contain 2>&1 | tail -20 || true
+            sudo podman logs contAIn 2>&1 | tail -20 || true
           fi
 
           echo "PASS: health check from host (test completed)"
@@ -650,14 +650,14 @@ jobs:
           if ! sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contain$'; then
             echo "FAIL: contain container is not running"
             echo "--- Container logs ---"
-            sudo podman logs contain 2>&1 | tail -50 || true
+            sudo podman logs contAIn 2>&1 | tail -50 || true
             echo "--- systemctl status ---"
-            systemctl status contain.service --no-pager 2>&1 || true
+            systemctl status contAIn.service --no-pager 2>&1 || true
             exit 1
           fi
 
           echo "--- Creating file as agent user via podman exec ---"
-          sudo podman exec --user agent contain touch "$CONTAINER_TEST_FILE"
+          sudo podman exec --user agent contAIn touch "$CONTAINER_TEST_FILE"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership from agent to primary user.
@@ -705,12 +705,12 @@ jobs:
           if ! sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contain$'; then
             echo "FAIL: contain container is not running"
             echo "--- Container logs ---"
-            sudo podman logs contain 2>&1 | tail -50 || true
+            sudo podman logs contAIn 2>&1 | tail -50 || true
             exit 1
           fi
 
           echo "--- Creating directory as agent user via podman exec ---"
-          sudo podman exec --user agent contain mkdir "$CONTAINER_TEST_DIR"
+          sudo podman exec --user agent contAIn mkdir "$CONTAINER_TEST_DIR"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership.
@@ -1150,9 +1150,9 @@ jobs:
           # at `podman run` because accessing the rootful image store requires root.
           # The critical assertion is that it does NOT emit "container is not running".
 
-          echo "--- Verifying contain.service is active (rootful) ---"
-          systemctl is-active contain.service || \
-            { echo "SKIP: contain.service is not active; skipping test"; exit 0; }
+          echo "--- Verifying contAIn.service is active (rootful) ---"
+          systemctl is-active contAIn.service || \
+            { echo "SKIP: contAIn.service is not active; skipping test"; exit 0; }
 
           echo "--- Asserting TUI source uses systemctl is-active (not podman ps) ---"
           TARGET=$(readlink -f /usr/local/bin/contain-tui)
@@ -1202,28 +1202,28 @@ jobs:
           set -euo pipefail
 
           echo "--- Checking symlink for Projects ---"
-          LINK=$(sudo podman exec contain readlink "$HOME/Projects")
+          LINK=$(sudo podman exec contAIn readlink "$HOME/Projects")
           echo "    $HOME/Projects -> $LINK"
           [[ "$LINK" == "/workspace/Projects" ]] || \
             { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
           echo "PASS: Projects symlink correct"
 
           echo "--- Checking symlink for work ---"
-          LINK=$(sudo podman exec contain readlink "$HOME/work")
+          LINK=$(sudo podman exec contAIn readlink "$HOME/work")
           echo "    $HOME/work -> $LINK"
           [[ "$LINK" == "/workspace/work" ]] || \
             { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
           echo "PASS: work symlink correct"
 
           echo "--- Checking parent directory exists and is owned by root ---"
-          PARENT_OWNER=$(sudo podman exec contain stat -c '%U' "$(dirname "$HOME/Projects")")
+          PARENT_OWNER=$(sudo podman exec contAIn stat -c '%U' "$(dirname "$HOME/Projects")")
           echo "    Parent dir owner: $PARENT_OWNER"
           [[ "$PARENT_OWNER" == "root" ]] || \
             { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
           echo "PASS: parent directory owned by root"
 
           echo "--- Checking ls through symlink shows real contents ---"
-          sudo podman exec contain ls "$HOME/Projects" > /dev/null
+          sudo podman exec contAIn ls "$HOME/Projects" > /dev/null
           echo "PASS: ls through symlink works"
 
           echo ""
@@ -1238,12 +1238,12 @@ jobs:
 
           echo "--- Listing synthetic home dir inside container ---"
           CONTENTS=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
-            contain /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
+            contAIn /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
           echo "$CONTENTS"
 
           echo "--- Agent cannot read .bashrc from host home ---"
           if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
-            contain cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
+            contAIn cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
             echo "FAIL: agent could read .bashrc from host home"
             exit 1
           fi
@@ -1251,7 +1251,7 @@ jobs:
 
           echo "--- Agent cannot read .ssh from host home ---"
           if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
-            contain ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
+            contAIn ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
             echo "FAIL: agent could list .ssh from host home"
             exit 1
           fi
@@ -1259,7 +1259,7 @@ jobs:
 
           echo "--- Agent cannot create files in synthetic home dir ---"
           if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
-            contain touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
+            contAIn touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
             echo "FAIL: agent could create files in host home"
             exit 1
           fi
@@ -1278,7 +1278,7 @@ jobs:
           echo "--- Running whoami with host-side Projects path as cwd ---"
           RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
             --workdir "$HOME/Projects/myproject" \
-            contain /usr/bin/bash -c 'whoami')
+            contAIn /usr/bin/bash -c 'whoami')
           [[ "$RESULT" == "agent" ]] || \
             { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
           echo "PASS: whoami works with host-side cwd (Projects/myproject)"
@@ -1286,14 +1286,14 @@ jobs:
           echo "--- Running whoami with host-side work path as cwd ---"
           RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
             --workdir "$HOME/work/mywork" \
-            contain /usr/bin/bash -c 'whoami')
+            contAIn /usr/bin/bash -c 'whoami')
           [[ "$RESULT" == "agent" ]] || \
             { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
           echo "PASS: whoami works with host-side cwd (work/mywork)"
 
           echo "--- File operations via host-side path ---"
           sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
-            contain /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/myproject/spawn_test_file'"
+            contAIn /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/myproject/spawn_test_file'"
           [[ -f "$HOME/Projects/myproject/spawn_test_file" ]] || \
             { echo "FAIL: file not created on host"; exit 1; }
           grep -q 'spawn-test' "$HOME/Projects/myproject/spawn_test_file" || \
@@ -1304,7 +1304,7 @@ jobs:
           echo "--- ls via host-side path ---"
           sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
             --workdir "$HOME/Projects/myproject" \
-            contain /usr/bin/bash -c 'ls -la' > /dev/null
+            contAIn /usr/bin/bash -c 'ls -la' > /dev/null
           echo "PASS: ls works with host-side cwd"
 
           echo ""
@@ -1319,7 +1319,7 @@ jobs:
           EXPECTED_GROUP="$(id -gn)"
 
           echo "--- Creating file via symlinked host path inside container ---"
-          sudo podman exec --user agent contain touch "$HOME/Projects/myproject/${TEST_FILE}"
+          sudo podman exec --user agent contAIn touch "$HOME/Projects/myproject/${TEST_FILE}"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           for i in $(seq 1 20); do
@@ -1375,7 +1375,7 @@ jobs:
 
           echo ""
           echo "=== systemctl status ==="
-          systemctl status contain.service --no-pager 2>&1 || true
+          systemctl status contAIn.service --no-pager 2>&1 || true
           echo "---"
           systemctl status contain-watcher.service --no-pager 2>&1 || true
           echo "---"
@@ -1387,11 +1387,11 @@ jobs:
 
           echo ""
           echo "=== container logs ==="
-          sudo podman logs contain 2>&1 | tail -50 || true
+          sudo podman logs contAIn 2>&1 | tail -50 || true
 
           echo ""
           echo "=== journal (contain) ==="
-          journalctl -u contain --no-pager -n 30 2>&1 || true
+          journalctl -u contAIn --no-pager -n 30 2>&1 || true
 
           echo ""
           echo "=== journal (watcher) ==="
@@ -1399,7 +1399,2572 @@ jobs:
 
           echo ""
           echo "=== generated quadlet ==="
-          cat /etc/containers/systemd/contain.container 2>&1 || true
+          cat /etc/containers/systemd/contAIn.container 2>&1 || true
+
+          echo ""
+          echo "=== generated watcher service ==="
+          cat /etc/systemd/system/contain-watcher.service 2>&1 || true
+
+          echo ""
+          echo "=== contain config.json ==="
+          cat "$HOME/.config/contain/config.json" 2>&1 || true
+
+          echo ""
+          echo "=== contain opencode.json ==="
+          cat "$HOME/.config/contain/opencode.json" 2>&1 || true
+
+          echo ""
+          echo "=== project directory ==="
+          ls -la "$HOME/Projects/" 2>&1 || true
+
+          echo ""
+          echo "=== podman images ==="
+          sudo podman images 2>&1 || true
+; then
+              echo "    Container running after ${i}s"
+              CONTAINER_RUNNING=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [[ "$CONTAINER_RUNNING" != "true" ]]; then
+            echo "FAIL: Container did not start within 30s"
+            echo ""
+            echo "--- systemctl status ---"
+            systemctl status contAIn.service --no-pager 2>&1 || true
+            echo ""
+            echo "--- journalctl ---"
+            journalctl -u contAIn --no-pager -n 50 2>&1 || true
+            exit 1
+          fi
+
+          echo "--- Checking container health status ---"
+          # The container should have a healthcheck defined
+          HEALTH=$(sudo podman inspect contAIn --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+          echo "    Health status: $HEALTH"
+
+          # Allow some time for healthcheck to run
+          sleep 15
+
+          echo "--- Checking health status after 15s ---"
+          HEALTH=$(sudo podman inspect contAIn --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+          echo "    Health status: $HEALTH"
+
+          # Note: The container may not be healthy if OpenCode needs credentials
+          # The important thing is that the healthcheck mechanism is working
+          if [[ "$HEALTH" == "none" ]]; then
+            echo "WARN: No healthcheck found in container"
+          fi
+
+          echo "PASS: health check from container"
+
+      # ── 8. Test health check from host ─────────────────────
+      - name: "Test: health check from host"
+        run: |
+          set -euo pipefail
+          CONFIG="$HOME/.config/contain/config.json"
+
+          HOST=$(jq -r '.host' "$CONFIG")
+          PORT=$(jq -r '.port' "$CONFIG")
+
+          echo "--- Testing /global/health endpoint from host ---"
+          echo "    URL: http://${HOST}:${PORT}/global/health"
+
+          # Try to hit the health endpoint (may fail if OpenCode crashed)
+          RESPONSE=$(curl -sf "http://${HOST}:${PORT}/global/health" 2>&1 || true)
+
+          if [[ -n "$RESPONSE" ]]; then
+            echo "    Response: $RESPONSE"
+            echo "$RESPONSE" | jq -e '.healthy' > /dev/null && \
+              echo "PASS: health endpoint returned healthy" || \
+              echo "INFO: health endpoint returned response but not healthy"
+          else
+            echo "    No response from health endpoint"
+            echo "INFO: This may be expected if OpenCode needs valid credentials to start"
+
+            # Check container logs for more info
+            echo "--- Container logs (last 20 lines) ---"
+            sudo podman logs contAIn 2>&1 | tail -20 || true
+          fi
+
+          echo "PASS: health check from host (test completed)"
+
+      # ── 9. Test POSIX permission model ─────────────────────
+      - name: "Test: POSIX permission enforcement"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Creating test files with various permission modes ---"
+
+          # 660: owner + group rw (agent with same group → readable)
+          echo "group-readwrite" | sudo tee "$PROJECT/file_660" > /dev/null
+          sudo chown "$USER:" "$PROJECT/file_660"
+          sudo chmod 660 "$PROJECT/file_660"
+
+          # 640: owner rw, group r (agent with same group → readable)
+          echo "group-readable" | sudo tee "$PROJECT/file_640" > /dev/null
+          sudo chown "$USER:" "$PROJECT/file_640"
+          sudo chmod 640 "$PROJECT/file_640"
+
+          # 600: owner only (agent is NOT owner → blocked)
+          echo "secret-owner-only" | sudo tee "$PROJECT/file_600" > /dev/null
+          sudo chown "$USER:$USER" "$PROJECT/file_600"
+          sudo chmod 600 "$PROJECT/file_600"
+
+          # 644: owner rw, group r, other r (anyone → readable)
+          echo "world-readable" | sudo tee "$PROJECT/file_644" > /dev/null
+          sudo chown "$USER:$USER" "$PROJECT/file_644"
+          sudo chmod 644 "$PROJECT/file_644"
+
+          echo "--- File listing ---"
+          ls -la "$PROJECT"/file_*
+
+          # Use podman run with the same user/group as the real service.
+          # Mount under /workspace to match production layout.
+          RUN_CMD="sudo podman run --rm
+            --user ${AGENT_UID}:${PRIMARY_GID}
+            -v ${PROJECT}:${WORKSPACE}:rw
+            --entrypoint cat
+            localhost/contain:latest"
+
+          echo ""
+          echo "--- Testing file_660 (group rw, expect: readable) ---"
+          $RUN_CMD "${WORKSPACE}/file_660" > /dev/null \
+            && echo "PASS: 660 readable" \
+            || { echo "FAIL: 660 should be readable by group"; exit 1; }
+
+          echo "--- Testing file_640 (group r, expect: readable) ---"
+          $RUN_CMD "${WORKSPACE}/file_640" > /dev/null \
+            && echo "PASS: 640 readable" \
+            || { echo "FAIL: 640 should be readable by group"; exit 1; }
+
+          echo "--- Testing file_644 (other r, expect: readable) ---"
+          $RUN_CMD "${WORKSPACE}/file_644" > /dev/null \
+            && echo "PASS: 644 readable" \
+            || { echo "FAIL: 644 should be readable by other"; exit 1; }
+
+          echo "--- Testing file_600 (owner only, expect: BLOCKED) ---"
+          if $RUN_CMD "${WORKSPACE}/file_600" > /dev/null 2>&1; then
+            echo "FAIL: 600 should NOT be readable by agent"
+            exit 1
+          else
+            echo "PASS: 600 correctly blocked"
+          fi
+
+          echo ""
+          echo "PASS: POSIX permission model"
+
+      # ── 10. Test write permissions ─────────────────────────
+      - name: "Test: agent can write to group-writable files"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Testing write to 660 file ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'agent-was-here' >> '${WORKSPACE}/file_660'"
+
+          grep -q 'agent-was-here' "$PROJECT/file_660" \
+            && echo "PASS: agent can write to 660" \
+            || { echo "FAIL: write to 660 did not persist"; exit 1; }
+
+          echo "--- Testing write to 600 file (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'should-fail' >> '${WORKSPACE}/file_600'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to 600"
+            exit 1
+          else
+            echo "PASS: write to 600 correctly blocked"
+          fi
+
+          echo ""
+          echo "PASS: write permission model"
+
+      # ── 10a. Test agent cannot change permissions ───────────
+      - name: "Test: agent cannot chmod/chown files"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Testing chmod on 600 file (expect: BLOCKED) ---"
+          # Agent should not be able to chmod a file it doesn't own
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/contain:latest \
+            666 "${WORKSPACE}/file_600" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod 600 file"
+            exit 1
+          else
+            echo "PASS: chmod on 600 correctly blocked"
+          fi
+
+          # Verify permissions unchanged
+          PERMS=$(stat -c '%a' "$PROJECT/file_600")
+          [[ "$PERMS" == "600" ]] || \
+            { echo "FAIL: file_600 perms changed to $PERMS"; exit 1; }
+          echo "PASS: file_600 perms unchanged ($PERMS)"
+
+          echo "--- Testing chmod on 660 file owned by user (expect: BLOCKED) ---"
+          # Even for group-writable files, agent shouldn't be able to chmod
+          # because it's not the owner
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/contain:latest \
+            777 "${WORKSPACE}/file_660" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod file it doesn't own"
+            exit 1
+          else
+            echo "PASS: chmod on 660 correctly blocked (not owner)"
+          fi
+
+          echo "--- Testing chown (expect: BLOCKED) ---"
+          # Agent should never be able to chown
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chown \
+            localhost/contain:latest \
+            "${AGENT_UID}:${PRIMARY_GID}" "${WORKSPACE}/file_600" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chown"
+            exit 1
+          else
+            echo "PASS: chown correctly blocked"
+          fi
+
+          echo ""
+          echo "PASS: agent cannot change permissions"
+
+      # ── 10b. Test 600 file with same group ─────────────────────
+      - name: "Test: agent blocked from 600 file even with same group"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          WORKSPACE="/workspace/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          # Create file: 600, owner=runner, group=runner's primary group
+          # This tests that 600 means NO group access, even if group matches
+          echo "secret-content" | sudo tee "$PROJECT/secret_600_ai" > /dev/null
+          sudo chown "$USER:" "$PROJECT/secret_600_ai"
+          sudo chmod 600 "$PROJECT/secret_600_ai"
+
+          echo "--- File setup ---"
+          ls -la "$PROJECT/secret_600_ai"
+
+          echo "--- Test 1: Agent tries to read (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest \
+            "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read 600 file"
+            exit 1
+          else
+            echo "PASS: agent blocked from reading 600 file"
+          fi
+
+          echo "--- Test 2: Agent tries to chmod (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${PROJECT}:${WORKSPACE}:rw" \
+            --entrypoint chmod \
+            localhost/contain:latest \
+            660 "${WORKSPACE}/secret_600_ai" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to chmod"
+            exit 1
+          else
+            echo "PASS: agent blocked from chmod"
+          fi
+
+          echo "--- Verify permissions unchanged ---"
+          PERMS=$(stat -c '%a' "$PROJECT/secret_600_ai")
+          [[ "$PERMS" == "600" ]] || \
+            { echo "FAIL: permissions changed to $PERMS"; exit 1; }
+          echo "PASS: permissions unchanged (600)"
+
+          echo ""
+          echo "PASS: 600 file with same group properly protected"
+
+      # ── 11. Test inotify watcher ───────────────────────────
+      - name: "Test: inotify watcher (file ownership reassignment)"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          WORKSPACE="/workspace/Projects/myproject"
+          TEST_FILE="$PROJECT/watcher_test_file"
+          CONTAINER_TEST_FILE="${WORKSPACE}/watcher_test_file"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Verifying container is running ---"
+          if ! sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contAIn; then
+            echo "FAIL: contain container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs contAIn 2>&1 | tail -50 || true
+            echo "--- systemctl status ---"
+            systemctl status contAIn.service --no-pager 2>&1 || true
+            exit 1
+          fi
+
+          echo "--- Creating file as agent user via podman exec ---"
+          sudo podman exec --user agent contAIn touch "$CONTAINER_TEST_FILE"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          # The watcher should reassign ownership from agent to primary user.
+          # We poll until the final state is reached.
+          for i in $(seq 1 20); do
+            CURRENT_OWNER=$(stat -c '%U' "$TEST_FILE" 2>/dev/null) || true
+            if [[ "$CURRENT_OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          echo "--- Verifying final state ---"
+          FINAL_OWNER=$(stat -c '%U' "$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$TEST_FILE")
+          FINAL_PERMS=$(stat -c '%a' "$TEST_FILE")
+
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP perms=$FINAL_PERMS"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          # Check group-write bit is set (second digit >= 6 means g+rw)
+          GROUP_PERM=${FINAL_PERMS:1:1}
+          [[ "$GROUP_PERM" -ge 6 ]] || \
+            { echo "FAIL: group perms=$GROUP_PERM, expected >=6 (g+w)"; exit 1; }
+
+          echo ""
+          echo "PASS: inotify watcher"
+
+      # ── 12. Test watcher handles directories ───────────────
+      - name: "Test: watcher sets setgid on new directories"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          WORKSPACE="/workspace/Projects/myproject"
+          TEST_DIR="$PROJECT/watcher_test_dir"
+          CONTAINER_TEST_DIR="${WORKSPACE}/watcher_test_dir"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Verifying container is running ---"
+          if ! sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contain$'; then
+            echo "FAIL: contain container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs contAIn 2>&1 | tail -50 || true
+            exit 1
+          fi
+
+          echo "--- Creating directory as agent user via podman exec ---"
+          sudo podman exec --user agent contAIn mkdir "$CONTAINER_TEST_DIR"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          # The watcher should reassign ownership.
+          for i in $(seq 1 20); do
+            CURRENT_OWNER=$(stat -c '%U' "$TEST_DIR" 2>/dev/null) || true
+            if [[ "$CURRENT_OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          echo "--- Verifying final state ---"
+          PERMS=$(stat -c '%a' "$TEST_DIR")
+          FINAL_OWNER=$(stat -c '%U' "$TEST_DIR")
+          FINAL_GROUP=$(stat -c '%G' "$TEST_DIR")
+
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP perms=$PERMS"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          # Check setgid: stat %a on a setgid dir returns 2xxx or the
+          # group digit includes the setgid flag. Use %A for symbolic.
+          SYMBOLIC=$(stat -c '%A' "$TEST_DIR")
+          echo "$SYMBOLIC" | grep -q 's\|S' \
+            && echo "PASS: setgid bit set" \
+            || { echo "FAIL: setgid bit not set (perms: $SYMBOLIC)"; exit 1; }
+
+          echo ""
+          echo "PASS: watcher directory handling"
+
+      # ── 13. Test read-only mounts ──────────────────────────
+      - name: "Test: config and auth mounts are read-only"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+          CONTAINERD_CONFIG="$HOME/.config/contain"
+
+          echo "--- Testing write to contain config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${CONTAINERD_CONFIG}/opencode.json:/etc/contain/opencode.json:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /etc/contain/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to config"
+            exit 1
+          else
+            echo "PASS: config mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode data dir (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.local/share/opencode:/home/agent/.local/share/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.local/share/opencode/auth.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to auth data"
+            exit 1
+          else
+            echo "PASS: data mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode global config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.config/opencode:/home/agent/.config/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.config/opencode/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to global config"
+            exit 1
+          else
+            echo "PASS: global config mount is read-only"
+          fi
+
+          echo ""
+          echo "PASS: read-only mounts"
+
+      # ── 14. Test prepare-permissions (Nix-built binary) ────
+      - name: "Test: prepare-permissions (Nix-built binary)"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          NIX_PREPARE_PERMS="$(pwd)/result/bin/contain-prepare-permissions"
+          echo "--- Using Nix-built binary: $NIX_PREPARE_PERMS ---"
+          [[ -x "$NIX_PREPARE_PERMS" ]] || \
+            { echo "FAIL: $NIX_PREPARE_PERMS not found or not executable"; exit 1; }
+
+          # Create a test subdirectory with various files
+          TEST_DIR="$PROJECT/perm_test"
+          mkdir -p "$TEST_DIR"
+
+          echo "--- Creating test files ---"
+          
+          # Sensitive files (script should NOT lock by default)
+          echo "SECRET_KEY=abc123" > "$TEST_DIR/.env"
+          chmod 644 "$TEST_DIR/.env"
+          
+          echo "LOCAL_SECRET=xyz" > "$TEST_DIR/.env.local"
+          chmod 644 "$TEST_DIR/.env.local"
+          
+          mkdir -p "$TEST_DIR/secrets"
+          echo "password" > "$TEST_DIR/secrets/password.txt"
+          chmod 755 "$TEST_DIR/secrets"
+          chmod 644 "$TEST_DIR/secrets/password.txt"
+          
+          echo "PRIVATE KEY" > "$TEST_DIR/id_rsa"
+          chmod 644 "$TEST_DIR/id_rsa"
+          
+          # .git directory (should be set read-only)
+          mkdir -p "$TEST_DIR/.git/objects"
+          echo "ref: refs/heads/main" > "$TEST_DIR/.git/HEAD"
+          chmod 755 "$TEST_DIR/.git"
+          chmod 644 "$TEST_DIR/.git/HEAD"
+          
+          # Regular file - user opts in to agent write access
+          echo "source code" > "$TEST_DIR/main.py"
+          chmod 664 "$TEST_DIR/main.py"  # User explicitly sets g+rw
+          
+          # File user wants agent to read only
+          echo "read-only-for-agent" > "$TEST_DIR/readonly.txt"
+          chmod 640 "$TEST_DIR/readonly.txt"  # g=r (user's choice)
+          
+          # Subdirectory that needs to be traversable
+          mkdir -p "$TEST_DIR/subdir"
+          echo "nested file" > "$TEST_DIR/subdir/nested.py"
+          # Don't set group - script should make it traversable
+          
+          echo "--- Initial permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "--- Running Nix-built contain-prepare-permissions (default: no lock) ---"
+          sudo "$NIX_PREPARE_PERMS" --no-lock-sensitive "$TEST_DIR"
+
+          echo ""
+          echo "--- Final permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "=== Verifying default behavior (sensitive files NOT locked) ==="
+          
+          echo "--- .env should be unchanged (still 644) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR/.env")
+          [[ "$ENV_MODE" == "644" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: .env unchanged"
+
+          echo "--- secrets/ should be unchanged (still 755) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR/secrets")
+          [[ "$SECRETS_MODE" == "755" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=755 (unchanged)"; exit 1; }
+          echo "PASS: secrets/ unchanged"
+
+          echo "--- id_rsa should be unchanged (still 644) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR/id_rsa")
+          [[ "$KEY_MODE" == "644" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: id_rsa unchanged"
+
+          echo ""
+          echo "=== Verifying .git/ is read-only ==="
+          GIT_PERMS=$(stat -c '%A' "$TEST_DIR/.git")
+          if echo "$GIT_PERMS" | grep -q 'w.....$'; then
+            echo "FAIL: .git has group write: $GIT_PERMS"
+            exit 1
+          fi
+          echo "PASS: .git is read-only for group ($GIT_PERMS)"
+
+          echo ""
+          echo "=== Verifying directories are traversable ==="
+          
+          echo "--- subdir should be g+rx (traversable) ---"
+          SUBDIR_PERMS=$(stat -c '%A' "$TEST_DIR/subdir")
+          echo "$SUBDIR_PERMS" | grep -q 'r.s' || echo "$SUBDIR_PERMS" | grep -q 'r.x' || \
+            { echo "FAIL: subdir not traversable: $SUBDIR_PERMS"; exit 1; }
+          echo "PASS: subdir is traversable ($SUBDIR_PERMS)"
+
+          echo ""
+          echo "=== Verifying user-set file permissions are preserved ==="
+          
+          echo "--- main.py should still be 664 (user set g+rw) ---"
+          MAIN_PERMS=$(stat -c '%a' "$TEST_DIR/main.py")
+          [[ "$MAIN_PERMS" == "664" ]] || \
+            { echo "FAIL: main.py perms=$MAIN_PERMS, expected=664"; exit 1; }
+          echo "PASS: main.py preserved (664)"
+
+          echo "--- readonly.txt should still be 640 (user set g+r) ---"
+          RO_PERMS=$(stat -c '%a' "$TEST_DIR/readonly.txt")
+          [[ "$RO_PERMS" == "640" ]] || \
+            { echo "FAIL: readonly.txt perms=$RO_PERMS, expected=640"; exit 1; }
+          echo "PASS: readonly.txt preserved (640)"
+
+          echo ""
+          echo "=== Verifying agent access via container ==="
+          WORKSPACE_TEST="/workspace/perm_test"
+
+          echo "--- agent CAN read .git/HEAD (read-only) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/.git/HEAD" > /dev/null || \
+            { echo "FAIL: agent should be able to read .git/HEAD"; exit 1; }
+          echo "PASS: agent can read .git/HEAD"
+
+          echo "--- agent CANNOT write to .git/HEAD ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/.git/HEAD'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to .git/HEAD"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to .git/"
+
+          echo "--- agent CAN read main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/main.py" > /dev/null || \
+            { echo "FAIL: agent should be able to read main.py"; exit 1; }
+          echo "PASS: agent can read main.py"
+
+          echo "--- agent CAN write to main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo '# comment' >> '${WORKSPACE_TEST}/main.py'" || \
+            { echo "FAIL: agent should be able to write to main.py"; exit 1; }
+          echo "PASS: agent can write to main.py"
+
+          echo "--- agent CAN read readonly.txt (user granted g+r) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
+            { echo "FAIL: agent should be able to read readonly.txt"; exit 1; }
+          echo "PASS: agent can read readonly.txt"
+
+          echo "--- agent CANNOT write to readonly.txt (user set g+r only) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/readonly.txt'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to readonly.txt"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to readonly.txt"
+
+          echo ""
+          echo "=== Testing --lock-sensitive flag ==="
+          
+          # Create fresh sensitive files for lock test
+          TEST_DIR2="$PROJECT/perm_test_lock"
+          mkdir -p "$TEST_DIR2"
+          echo "SECRET" > "$TEST_DIR2/.env"
+          chmod 644 "$TEST_DIR2/.env"
+          mkdir -p "$TEST_DIR2/secrets"
+          echo "password" > "$TEST_DIR2/secrets/pass.txt"
+          chmod 755 "$TEST_DIR2/secrets"
+          echo "PRIVATE KEY" > "$TEST_DIR2/id_rsa"
+          chmod 644 "$TEST_DIR2/id_rsa"
+          
+          echo "--- Running with --lock-sensitive ---"
+          sudo "$NIX_PREPARE_PERMS" --lock-sensitive "$TEST_DIR2"
+          
+          echo "--- .env should be locked (600) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR2/.env")
+          [[ "$ENV_MODE" == "600" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=600"; exit 1; }
+          echo "PASS: .env locked (600)"
+
+          echo "--- secrets/ should be locked (700) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR2/secrets")
+          [[ "$SECRETS_MODE" == "700" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=700"; exit 1; }
+          echo "PASS: secrets/ locked (700)"
+
+          echo "--- id_rsa should be locked (600) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR2/id_rsa")
+          [[ "$KEY_MODE" == "600" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=600"; exit 1; }
+          echo "PASS: id_rsa locked (600)"
+
+          echo "--- agent CANNOT read locked .env ---"
+          WORKSPACE_TEST2="/workspace/perm_test_lock"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR2}:${WORKSPACE_TEST2}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read locked .env"
+            exit 1
+          fi
+          echo "PASS: agent blocked from locked .env"
+
+          echo ""
+          echo "PASS: prepare-permissions (Nix-built binary)"
+
+      # ── 15. Test idempotency ───────────────────────────────
+      - name: "Test: idempotency (re-run setup.sh)"
+        run: |
+          set -euo pipefail
+          echo "--- Running setup.sh a second time ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying services are still running ---"
+          sleep 3
+          sudo podman ps -a --filter name=contain \
+            --format 'table {{.Names}}\t{{.Status}}'
+          systemctl is-active contain-watcher.service
+
+          echo "--- Verifying config is unchanged ---"
+          POLICY="$HOME/.config/contain/opencode.json"
+          jq -e '.permission.external_directory' "$POLICY" > /dev/null
+
+          echo ""
+          echo "PASS: idempotency"
+
+      # ── 16. Test TUI script installation ────────────────────
+      - name: "Test: contain-tui script"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking TUI script is installed ---"
+          [[ -x /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui not found or not executable"; exit 1; }
+
+          echo "--- Checking TUI script is a symlink ---"
+          [[ -L /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui is not a symlink"; exit 1; }
+
+          echo "--- Checking symlink target exists ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          [[ -f "$TARGET" ]] || \
+            { echo "FAIL: symlink target $TARGET does not exist"; exit 1; }
+
+          echo "--- Syntax-checking TUI script ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          bash -n "$TARGET"
+
+          echo "--- Asserting TUI uses systemctl is-active (not podman ps) ---"
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps"; exit 1; }
+
+          echo "PASS: contain-tui script"
+
+      # ── 16a. Test Nix TUI handles missing OpenCode dirs ─────
+      - name: "Test: Nix TUI handles missing OpenCode dirs"
+        run: |
+          set -euo pipefail
+
+          echo "--- Simulating partially-failed nixos-rebuild activation ---"
+          # On NixOS, the contain-image activation step (podman build) runs
+          # before contain-dirs.  If the build aborted (e.g. groupadd exit 9),
+          # contain-dirs never ran and ~/.local/share/opencode never existed.
+          # The Nix tuiScript has a defensive guard that creates these dirs when
+          # running as root (sudo contain-tui).  The dir assertions below
+          # validate the guard by checking that setup.sh re-creates them correctly.
+          sudo rm -rf "$HOME/.local/share/opencode" "$HOME/.config/opencode"
+
+          echo "--- Verifying dirs are gone ---"
+          [[ ! -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: expected ~/.local/share/opencode to be absent"; exit 1; }
+          [[ ! -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: expected ~/.config/opencode to be absent"; exit 1; }
+          echo "    Dirs confirmed absent"
+
+          echo "--- Re-running setup.sh (should re-create the missing dirs) ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying ~/.local/share/opencode was re-created ---"
+          [[ -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: ~/.local/share/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.local/share/opencode")
+          MODE=$(stat -c '%a' "$HOME/.local/share/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.local/share/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.local/share/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.local/share/opencode owner=$OWNER mode=$MODE"
+
+          echo "--- Verifying ~/.config/opencode was re-created ---"
+          [[ -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: ~/.config/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.config/opencode")
+          MODE=$(stat -c '%a' "$HOME/.config/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.config/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.config/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
+
+          echo ""
+          echo "PASS: Nix TUI handles missing OpenCode dirs"
+
+      # ── 16b. Test Nix TUI service check works without sudo ──
+      - name: "Test: Nix TUI service check works without sudo (Bug 2)"
+        run: |
+          set -euo pipefail
+
+          # Bug 2: the old tuiScript used `podman ps` which only sees rootless
+          # containers.  The rootful container managed by systemd/Quadlet is
+          # invisible without root, so `podman ps` always reported "not running"
+          # for unprivileged users.  The fix uses `systemctl is-active` instead,
+          # which is readable by any user.
+          #
+          # This test runs the Nix TUI as the unprivileged runner user (no sudo).
+          # It should pass the service-running check (systemctl is-active succeeds
+          # because the container service is running from earlier tests), then fail
+          # at `podman run` because accessing the rootful image store requires root.
+          # The critical assertion is that it does NOT emit "container is not running".
+
+          echo "--- Verifying contAIn.service is active (rootful) ---"
+          systemctl is-active contAIn.service || \
+            { echo "SKIP: contAIn.service is not active; skipping test"; exit 0; }
+
+          echo "--- Asserting TUI source uses systemctl is-active (not podman ps) ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active (Bug 2 regression)"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps (Bug 2 regression)"; exit 1; }
+
+          echo "PASS: TUI service check works without sudo (Bug 2)"
+
+      # ── 17. Test path_map in config.json ────────────────────
+      - name: "Test: path_map in config.json"
+        run: |
+          set -euo pipefail
+          CONFIG="$HOME/.config/contain/config.json"
+
+          echo "--- Checking path_map exists in config ---"
+          jq -e '.path_map' "$CONFIG" > /dev/null || \
+            { echo "FAIL: path_map not found in config.json"; exit 1; }
+
+          echo "--- Checking path_map has correct entries ---"
+          MAP=$(jq -r '.path_map | to_entries[] | "\(.key) -> \(.value)"' "$CONFIG")
+          echo "$MAP"
+
+          # Verify both project paths are mapped
+          COUNT=$(jq '.path_map | length' "$CONFIG")
+          [[ "$COUNT" -eq 2 ]] || \
+            { echo "FAIL: expected 2 path_map entries, got $COUNT"; exit 1; }
+
+          echo "--- Checking each host path maps to a /workspace path ---"
+          jq -r '.path_map | to_entries[] | .value' "$CONFIG" | while read -r cpath; do
+            [[ "$cpath" == /workspace/* ]] || \
+              { echo "FAIL: container path '$cpath' does not start with /workspace/"; exit 1; }
+          done
+
+          echo "--- Checking specific mappings ---"
+          jq -e ".path_map[\"$HOME/Projects\"]" "$CONFIG" | grep -q '/workspace/Projects' || \
+            { echo "FAIL: Projects path not correctly mapped"; exit 1; }
+          jq -e ".path_map[\"$HOME/work\"]" "$CONFIG" | grep -q '/workspace/work' || \
+            { echo "FAIL: work path not correctly mapped"; exit 1; }
+
+          echo "PASS: path_map in config.json"
+
+      # ── 18. Test host-path symlinks exist in container ──────
+      - name: "Test: host-path symlinks exist in container"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking symlink for Projects ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/Projects")
+          echo "    $HOME/Projects -> $LINK"
+          [[ "$LINK" == "/workspace/Projects" ]] || \
+            { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
+          echo "PASS: Projects symlink correct"
+
+          echo "--- Checking symlink for work ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/work")
+          echo "    $HOME/work -> $LINK"
+          [[ "$LINK" == "/workspace/work" ]] || \
+            { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
+          echo "PASS: work symlink correct"
+
+          echo "--- Checking parent directory exists and is owned by root ---"
+          PARENT_OWNER=$(sudo podman exec contAIn stat -c '%U' "$(dirname "$HOME/Projects")")
+          echo "    Parent dir owner: $PARENT_OWNER"
+          [[ "$PARENT_OWNER" == "root" ]] || \
+            { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
+          echo "PASS: parent directory owned by root"
+
+          echo "--- Checking ls through symlink shows real contents ---"
+          sudo podman exec contAIn ls "$HOME/Projects" > /dev/null
+          echo "PASS: ls through symlink works"
+
+          echo ""
+          echo "PASS: host-path symlinks"
+
+      # ── 19. Test agent cannot access host home contents ─────
+      - name: "Test: agent cannot access host home directory contents"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Listing synthetic home dir inside container ---"
+          CONTENTS=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
+          echo "$CONTENTS"
+
+          echo "--- Agent cannot read .bashrc from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
+            echo "FAIL: agent could read .bashrc from host home"
+            exit 1
+          fi
+          echo "PASS: .bashrc not accessible"
+
+          echo "--- Agent cannot read .ssh from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
+            echo "FAIL: agent could list .ssh from host home"
+            exit 1
+          fi
+          echo "PASS: .ssh not accessible"
+
+          echo "--- Agent cannot create files in synthetic home dir ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
+            echo "FAIL: agent could create files in host home"
+            exit 1
+          fi
+          echo "PASS: cannot create files in synthetic home dir"
+
+          echo ""
+          echo "PASS: host home directory properly isolated"
+
+      # ── 20. Test spawn works via host-side path as cwd ──────
+      - name: "Test: spawn works via host-side path as cwd"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Running whoami with host-side Projects path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (Projects/myproject)"
+
+          echo "--- Running whoami with host-side work path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/work/mywork" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (work/mywork)"
+
+          echo "--- File operations via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/myproject/spawn_test_file'"
+          [[ -f "$HOME/Projects/myproject/spawn_test_file" ]] || \
+            { echo "FAIL: file not created on host"; exit 1; }
+          grep -q 'spawn-test' "$HOME/Projects/myproject/spawn_test_file" || \
+            { echo "FAIL: file content mismatch"; exit 1; }
+          rm -f "$HOME/Projects/myproject/spawn_test_file"
+          echo "PASS: file creation via host-side path"
+
+          echo "--- ls via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'ls -la' > /dev/null
+          echo "PASS: ls works with host-side cwd"
+
+          echo ""
+          echo "PASS: spawn works via host-side paths"
+
+      # ── 21. Test inotify watcher works through symlinked path
+      - name: "Test: inotify watcher works through symlinked path"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          TEST_FILE="inotify_symlink_test"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Creating file via symlinked host path inside container ---"
+          sudo podman exec --user agent contAIn touch "$HOME/Projects/myproject/${TEST_FILE}"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          for i in $(seq 1 20); do
+            OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE" 2>/dev/null) || true
+            if [[ "$OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          FINAL_OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$PROJECT/$TEST_FILE")
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          rm -f "$PROJECT/$TEST_FILE"
+          echo ""
+          echo "PASS: inotify watcher works through symlink"
+
+      # ── Diagnostics on failure ─────────────────────────────
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          echo "============================================"
+          echo "  DIAGNOSTICS"
+          echo "============================================"
+
+          echo ""
+          echo "=== OS / Podman / Nix info ==="
+          cat /etc/os-release | head -5
+          podman --version
+          podman info --format '{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
+          nix --version || true
+
+          echo ""
+          echo "=== Nix flake outputs ==="
+          nix flake show 2>&1 || true
+
+          echo ""
+          echo "=== Nix build result ==="
+          ls -la result/ 2>&1 || echo "(no result symlink)"
+
+          echo ""
+          echo "=== Users and groups ==="
+          id agent 2>&1 || echo "(agent user not found)"
+          id -gn "$USER" 2>&1
+          id "$USER" 2>&1
+
+          echo ""
+          echo "=== systemctl status ==="
+          systemctl status contAIn.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl status contain-watcher.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl list-timers contain-commit --no-pager 2>&1 || true
+
+          echo ""
+          echo "=== podman ps ==="
+          sudo podman ps -a 2>&1 || true
+
+          echo ""
+          echo "=== container logs ==="
+          sudo podman logs contAIn 2>&1 | tail -50 || true
+
+          echo ""
+          echo "=== journal (contain) ==="
+          journalctl -u contAIn --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== journal (watcher) ==="
+          journalctl -u contain-watcher --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== generated quadlet ==="
+          cat /etc/containers/systemd/contAIn.container 2>&1 || true
+
+          echo ""
+          echo "=== generated watcher service ==="
+          cat /etc/systemd/system/contain-watcher.service 2>&1 || true
+
+          echo ""
+          echo "=== contain config.json ==="
+          cat "$HOME/.config/contain/config.json" 2>&1 || true
+
+          echo ""
+          echo "=== contain opencode.json ==="
+          cat "$HOME/.config/contain/opencode.json" 2>&1 || true
+
+          echo ""
+          echo "=== project directory ==="
+          ls -la "$HOME/Projects/" 2>&1 || true
+
+          echo ""
+          echo "=== podman images ==="
+          sudo podman images 2>&1 || true
+; then
+            echo "FAIL: contain container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs contAIn 2>&1 | tail -50 || true
+            echo "--- systemctl status ---"
+            systemctl status contAIn.service --no-pager 2>&1 || true
+            exit 1
+          fi
+
+          echo "--- Creating file as agent user via podman exec ---"
+          sudo podman exec --user agent contAIn touch "$CONTAINER_TEST_FILE"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          # The watcher should reassign ownership from agent to primary user.
+          # We poll until the final state is reached.
+          for i in $(seq 1 20); do
+            CURRENT_OWNER=$(stat -c '%U' "$TEST_FILE" 2>/dev/null) || true
+            if [[ "$CURRENT_OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          echo "--- Verifying final state ---"
+          FINAL_OWNER=$(stat -c '%U' "$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$TEST_FILE")
+          FINAL_PERMS=$(stat -c '%a' "$TEST_FILE")
+
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP perms=$FINAL_PERMS"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          # Check group-write bit is set (second digit >= 6 means g+rw)
+          GROUP_PERM=${FINAL_PERMS:1:1}
+          [[ "$GROUP_PERM" -ge 6 ]] || \
+            { echo "FAIL: group perms=$GROUP_PERM, expected >=6 (g+w)"; exit 1; }
+
+          echo ""
+          echo "PASS: inotify watcher"
+
+      # ── 12. Test watcher handles directories ───────────────
+      - name: "Test: watcher sets setgid on new directories"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          WORKSPACE="/workspace/Projects/myproject"
+          TEST_DIR="$PROJECT/watcher_test_dir"
+          CONTAINER_TEST_DIR="${WORKSPACE}/watcher_test_dir"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Verifying container is running ---"
+          if ! sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contAIn; then
+            echo "FAIL: contain container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs contAIn 2>&1 | tail -50 || true
+            exit 1
+          fi
+
+          echo "--- Creating directory as agent user via podman exec ---"
+          sudo podman exec --user agent contAIn mkdir "$CONTAINER_TEST_DIR"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          # The watcher should reassign ownership.
+          for i in $(seq 1 20); do
+            CURRENT_OWNER=$(stat -c '%U' "$TEST_DIR" 2>/dev/null) || true
+            if [[ "$CURRENT_OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          echo "--- Verifying final state ---"
+          PERMS=$(stat -c '%a' "$TEST_DIR")
+          FINAL_OWNER=$(stat -c '%U' "$TEST_DIR")
+          FINAL_GROUP=$(stat -c '%G' "$TEST_DIR")
+
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP perms=$PERMS"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          # Check setgid: stat %a on a setgid dir returns 2xxx or the
+          # group digit includes the setgid flag. Use %A for symbolic.
+          SYMBOLIC=$(stat -c '%A' "$TEST_DIR")
+          echo "$SYMBOLIC" | grep -q 's\|S' \
+            && echo "PASS: setgid bit set" \
+            || { echo "FAIL: setgid bit not set (perms: $SYMBOLIC)"; exit 1; }
+
+          echo ""
+          echo "PASS: watcher directory handling"
+
+      # ── 13. Test read-only mounts ──────────────────────────
+      - name: "Test: config and auth mounts are read-only"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+          CONTAINERD_CONFIG="$HOME/.config/contain"
+
+          echo "--- Testing write to contain config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${CONTAINERD_CONFIG}/opencode.json:/etc/contain/opencode.json:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /etc/contain/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to config"
+            exit 1
+          else
+            echo "PASS: config mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode data dir (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.local/share/opencode:/home/agent/.local/share/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.local/share/opencode/auth.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to auth data"
+            exit 1
+          else
+            echo "PASS: data mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode global config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.config/opencode:/home/agent/.config/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.config/opencode/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to global config"
+            exit 1
+          else
+            echo "PASS: global config mount is read-only"
+          fi
+
+          echo ""
+          echo "PASS: read-only mounts"
+
+      # ── 14. Test prepare-permissions (Nix-built binary) ────
+      - name: "Test: prepare-permissions (Nix-built binary)"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          NIX_PREPARE_PERMS="$(pwd)/result/bin/contain-prepare-permissions"
+          echo "--- Using Nix-built binary: $NIX_PREPARE_PERMS ---"
+          [[ -x "$NIX_PREPARE_PERMS" ]] || \
+            { echo "FAIL: $NIX_PREPARE_PERMS not found or not executable"; exit 1; }
+
+          # Create a test subdirectory with various files
+          TEST_DIR="$PROJECT/perm_test"
+          mkdir -p "$TEST_DIR"
+
+          echo "--- Creating test files ---"
+          
+          # Sensitive files (script should NOT lock by default)
+          echo "SECRET_KEY=abc123" > "$TEST_DIR/.env"
+          chmod 644 "$TEST_DIR/.env"
+          
+          echo "LOCAL_SECRET=xyz" > "$TEST_DIR/.env.local"
+          chmod 644 "$TEST_DIR/.env.local"
+          
+          mkdir -p "$TEST_DIR/secrets"
+          echo "password" > "$TEST_DIR/secrets/password.txt"
+          chmod 755 "$TEST_DIR/secrets"
+          chmod 644 "$TEST_DIR/secrets/password.txt"
+          
+          echo "PRIVATE KEY" > "$TEST_DIR/id_rsa"
+          chmod 644 "$TEST_DIR/id_rsa"
+          
+          # .git directory (should be set read-only)
+          mkdir -p "$TEST_DIR/.git/objects"
+          echo "ref: refs/heads/main" > "$TEST_DIR/.git/HEAD"
+          chmod 755 "$TEST_DIR/.git"
+          chmod 644 "$TEST_DIR/.git/HEAD"
+          
+          # Regular file - user opts in to agent write access
+          echo "source code" > "$TEST_DIR/main.py"
+          chmod 664 "$TEST_DIR/main.py"  # User explicitly sets g+rw
+          
+          # File user wants agent to read only
+          echo "read-only-for-agent" > "$TEST_DIR/readonly.txt"
+          chmod 640 "$TEST_DIR/readonly.txt"  # g=r (user's choice)
+          
+          # Subdirectory that needs to be traversable
+          mkdir -p "$TEST_DIR/subdir"
+          echo "nested file" > "$TEST_DIR/subdir/nested.py"
+          # Don't set group - script should make it traversable
+          
+          echo "--- Initial permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "--- Running Nix-built contain-prepare-permissions (default: no lock) ---"
+          sudo "$NIX_PREPARE_PERMS" --no-lock-sensitive "$TEST_DIR"
+
+          echo ""
+          echo "--- Final permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "=== Verifying default behavior (sensitive files NOT locked) ==="
+          
+          echo "--- .env should be unchanged (still 644) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR/.env")
+          [[ "$ENV_MODE" == "644" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: .env unchanged"
+
+          echo "--- secrets/ should be unchanged (still 755) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR/secrets")
+          [[ "$SECRETS_MODE" == "755" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=755 (unchanged)"; exit 1; }
+          echo "PASS: secrets/ unchanged"
+
+          echo "--- id_rsa should be unchanged (still 644) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR/id_rsa")
+          [[ "$KEY_MODE" == "644" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: id_rsa unchanged"
+
+          echo ""
+          echo "=== Verifying .git/ is read-only ==="
+          GIT_PERMS=$(stat -c '%A' "$TEST_DIR/.git")
+          if echo "$GIT_PERMS" | grep -q 'w.....$'; then
+            echo "FAIL: .git has group write: $GIT_PERMS"
+            exit 1
+          fi
+          echo "PASS: .git is read-only for group ($GIT_PERMS)"
+
+          echo ""
+          echo "=== Verifying directories are traversable ==="
+          
+          echo "--- subdir should be g+rx (traversable) ---"
+          SUBDIR_PERMS=$(stat -c '%A' "$TEST_DIR/subdir")
+          echo "$SUBDIR_PERMS" | grep -q 'r.s' || echo "$SUBDIR_PERMS" | grep -q 'r.x' || \
+            { echo "FAIL: subdir not traversable: $SUBDIR_PERMS"; exit 1; }
+          echo "PASS: subdir is traversable ($SUBDIR_PERMS)"
+
+          echo ""
+          echo "=== Verifying user-set file permissions are preserved ==="
+          
+          echo "--- main.py should still be 664 (user set g+rw) ---"
+          MAIN_PERMS=$(stat -c '%a' "$TEST_DIR/main.py")
+          [[ "$MAIN_PERMS" == "664" ]] || \
+            { echo "FAIL: main.py perms=$MAIN_PERMS, expected=664"; exit 1; }
+          echo "PASS: main.py preserved (664)"
+
+          echo "--- readonly.txt should still be 640 (user set g+r) ---"
+          RO_PERMS=$(stat -c '%a' "$TEST_DIR/readonly.txt")
+          [[ "$RO_PERMS" == "640" ]] || \
+            { echo "FAIL: readonly.txt perms=$RO_PERMS, expected=640"; exit 1; }
+          echo "PASS: readonly.txt preserved (640)"
+
+          echo ""
+          echo "=== Verifying agent access via container ==="
+          WORKSPACE_TEST="/workspace/perm_test"
+
+          echo "--- agent CAN read .git/HEAD (read-only) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/.git/HEAD" > /dev/null || \
+            { echo "FAIL: agent should be able to read .git/HEAD"; exit 1; }
+          echo "PASS: agent can read .git/HEAD"
+
+          echo "--- agent CANNOT write to .git/HEAD ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/.git/HEAD'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to .git/HEAD"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to .git/"
+
+          echo "--- agent CAN read main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/main.py" > /dev/null || \
+            { echo "FAIL: agent should be able to read main.py"; exit 1; }
+          echo "PASS: agent can read main.py"
+
+          echo "--- agent CAN write to main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo '# comment' >> '${WORKSPACE_TEST}/main.py'" || \
+            { echo "FAIL: agent should be able to write to main.py"; exit 1; }
+          echo "PASS: agent can write to main.py"
+
+          echo "--- agent CAN read readonly.txt (user granted g+r) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
+            { echo "FAIL: agent should be able to read readonly.txt"; exit 1; }
+          echo "PASS: agent can read readonly.txt"
+
+          echo "--- agent CANNOT write to readonly.txt (user set g+r only) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/readonly.txt'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to readonly.txt"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to readonly.txt"
+
+          echo ""
+          echo "=== Testing --lock-sensitive flag ==="
+          
+          # Create fresh sensitive files for lock test
+          TEST_DIR2="$PROJECT/perm_test_lock"
+          mkdir -p "$TEST_DIR2"
+          echo "SECRET" > "$TEST_DIR2/.env"
+          chmod 644 "$TEST_DIR2/.env"
+          mkdir -p "$TEST_DIR2/secrets"
+          echo "password" > "$TEST_DIR2/secrets/pass.txt"
+          chmod 755 "$TEST_DIR2/secrets"
+          echo "PRIVATE KEY" > "$TEST_DIR2/id_rsa"
+          chmod 644 "$TEST_DIR2/id_rsa"
+          
+          echo "--- Running with --lock-sensitive ---"
+          sudo "$NIX_PREPARE_PERMS" --lock-sensitive "$TEST_DIR2"
+          
+          echo "--- .env should be locked (600) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR2/.env")
+          [[ "$ENV_MODE" == "600" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=600"; exit 1; }
+          echo "PASS: .env locked (600)"
+
+          echo "--- secrets/ should be locked (700) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR2/secrets")
+          [[ "$SECRETS_MODE" == "700" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=700"; exit 1; }
+          echo "PASS: secrets/ locked (700)"
+
+          echo "--- id_rsa should be locked (600) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR2/id_rsa")
+          [[ "$KEY_MODE" == "600" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=600"; exit 1; }
+          echo "PASS: id_rsa locked (600)"
+
+          echo "--- agent CANNOT read locked .env ---"
+          WORKSPACE_TEST2="/workspace/perm_test_lock"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR2}:${WORKSPACE_TEST2}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read locked .env"
+            exit 1
+          fi
+          echo "PASS: agent blocked from locked .env"
+
+          echo ""
+          echo "PASS: prepare-permissions (Nix-built binary)"
+
+      # ── 15. Test idempotency ───────────────────────────────
+      - name: "Test: idempotency (re-run setup.sh)"
+        run: |
+          set -euo pipefail
+          echo "--- Running setup.sh a second time ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying services are still running ---"
+          sleep 3
+          sudo podman ps -a --filter name=contain \
+            --format 'table {{.Names}}\t{{.Status}}'
+          systemctl is-active contain-watcher.service
+
+          echo "--- Verifying config is unchanged ---"
+          POLICY="$HOME/.config/contain/opencode.json"
+          jq -e '.permission.external_directory' "$POLICY" > /dev/null
+
+          echo ""
+          echo "PASS: idempotency"
+
+      # ── 16. Test TUI script installation ────────────────────
+      - name: "Test: contain-tui script"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking TUI script is installed ---"
+          [[ -x /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui not found or not executable"; exit 1; }
+
+          echo "--- Checking TUI script is a symlink ---"
+          [[ -L /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui is not a symlink"; exit 1; }
+
+          echo "--- Checking symlink target exists ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          [[ -f "$TARGET" ]] || \
+            { echo "FAIL: symlink target $TARGET does not exist"; exit 1; }
+
+          echo "--- Syntax-checking TUI script ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          bash -n "$TARGET"
+
+          echo "--- Asserting TUI uses systemctl is-active (not podman ps) ---"
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps"; exit 1; }
+
+          echo "PASS: contain-tui script"
+
+      # ── 16a. Test Nix TUI handles missing OpenCode dirs ─────
+      - name: "Test: Nix TUI handles missing OpenCode dirs"
+        run: |
+          set -euo pipefail
+
+          echo "--- Simulating partially-failed nixos-rebuild activation ---"
+          # On NixOS, the contain-image activation step (podman build) runs
+          # before contain-dirs.  If the build aborted (e.g. groupadd exit 9),
+          # contain-dirs never ran and ~/.local/share/opencode never existed.
+          # The Nix tuiScript has a defensive guard that creates these dirs when
+          # running as root (sudo contain-tui).  The dir assertions below
+          # validate the guard by checking that setup.sh re-creates them correctly.
+          sudo rm -rf "$HOME/.local/share/opencode" "$HOME/.config/opencode"
+
+          echo "--- Verifying dirs are gone ---"
+          [[ ! -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: expected ~/.local/share/opencode to be absent"; exit 1; }
+          [[ ! -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: expected ~/.config/opencode to be absent"; exit 1; }
+          echo "    Dirs confirmed absent"
+
+          echo "--- Re-running setup.sh (should re-create the missing dirs) ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying ~/.local/share/opencode was re-created ---"
+          [[ -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: ~/.local/share/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.local/share/opencode")
+          MODE=$(stat -c '%a' "$HOME/.local/share/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.local/share/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.local/share/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.local/share/opencode owner=$OWNER mode=$MODE"
+
+          echo "--- Verifying ~/.config/opencode was re-created ---"
+          [[ -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: ~/.config/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.config/opencode")
+          MODE=$(stat -c '%a' "$HOME/.config/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.config/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.config/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
+
+          echo ""
+          echo "PASS: Nix TUI handles missing OpenCode dirs"
+
+      # ── 16b. Test Nix TUI service check works without sudo ──
+      - name: "Test: Nix TUI service check works without sudo (Bug 2)"
+        run: |
+          set -euo pipefail
+
+          # Bug 2: the old tuiScript used `podman ps` which only sees rootless
+          # containers.  The rootful container managed by systemd/Quadlet is
+          # invisible without root, so `podman ps` always reported "not running"
+          # for unprivileged users.  The fix uses `systemctl is-active` instead,
+          # which is readable by any user.
+          #
+          # This test runs the Nix TUI as the unprivileged runner user (no sudo).
+          # It should pass the service-running check (systemctl is-active succeeds
+          # because the container service is running from earlier tests), then fail
+          # at `podman run` because accessing the rootful image store requires root.
+          # The critical assertion is that it does NOT emit "container is not running".
+
+          echo "--- Verifying contAIn.service is active (rootful) ---"
+          systemctl is-active contAIn.service || \
+            { echo "SKIP: contAIn.service is not active; skipping test"; exit 0; }
+
+          echo "--- Asserting TUI source uses systemctl is-active (not podman ps) ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active (Bug 2 regression)"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps (Bug 2 regression)"; exit 1; }
+
+          echo "PASS: TUI service check works without sudo (Bug 2)"
+
+      # ── 17. Test path_map in config.json ────────────────────
+      - name: "Test: path_map in config.json"
+        run: |
+          set -euo pipefail
+          CONFIG="$HOME/.config/contain/config.json"
+
+          echo "--- Checking path_map exists in config ---"
+          jq -e '.path_map' "$CONFIG" > /dev/null || \
+            { echo "FAIL: path_map not found in config.json"; exit 1; }
+
+          echo "--- Checking path_map has correct entries ---"
+          MAP=$(jq -r '.path_map | to_entries[] | "\(.key) -> \(.value)"' "$CONFIG")
+          echo "$MAP"
+
+          # Verify both project paths are mapped
+          COUNT=$(jq '.path_map | length' "$CONFIG")
+          [[ "$COUNT" -eq 2 ]] || \
+            { echo "FAIL: expected 2 path_map entries, got $COUNT"; exit 1; }
+
+          echo "--- Checking each host path maps to a /workspace path ---"
+          jq -r '.path_map | to_entries[] | .value' "$CONFIG" | while read -r cpath; do
+            [[ "$cpath" == /workspace/* ]] || \
+              { echo "FAIL: container path '$cpath' does not start with /workspace/"; exit 1; }
+          done
+
+          echo "--- Checking specific mappings ---"
+          jq -e ".path_map[\"$HOME/Projects\"]" "$CONFIG" | grep -q '/workspace/Projects' || \
+            { echo "FAIL: Projects path not correctly mapped"; exit 1; }
+          jq -e ".path_map[\"$HOME/work\"]" "$CONFIG" | grep -q '/workspace/work' || \
+            { echo "FAIL: work path not correctly mapped"; exit 1; }
+
+          echo "PASS: path_map in config.json"
+
+      # ── 18. Test host-path symlinks exist in container ──────
+      - name: "Test: host-path symlinks exist in container"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking symlink for Projects ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/Projects")
+          echo "    $HOME/Projects -> $LINK"
+          [[ "$LINK" == "/workspace/Projects" ]] || \
+            { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
+          echo "PASS: Projects symlink correct"
+
+          echo "--- Checking symlink for work ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/work")
+          echo "    $HOME/work -> $LINK"
+          [[ "$LINK" == "/workspace/work" ]] || \
+            { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
+          echo "PASS: work symlink correct"
+
+          echo "--- Checking parent directory exists and is owned by root ---"
+          PARENT_OWNER=$(sudo podman exec contAIn stat -c '%U' "$(dirname "$HOME/Projects")")
+          echo "    Parent dir owner: $PARENT_OWNER"
+          [[ "$PARENT_OWNER" == "root" ]] || \
+            { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
+          echo "PASS: parent directory owned by root"
+
+          echo "--- Checking ls through symlink shows real contents ---"
+          sudo podman exec contAIn ls "$HOME/Projects" > /dev/null
+          echo "PASS: ls through symlink works"
+
+          echo ""
+          echo "PASS: host-path symlinks"
+
+      # ── 19. Test agent cannot access host home contents ─────
+      - name: "Test: agent cannot access host home directory contents"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Listing synthetic home dir inside container ---"
+          CONTENTS=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
+          echo "$CONTENTS"
+
+          echo "--- Agent cannot read .bashrc from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
+            echo "FAIL: agent could read .bashrc from host home"
+            exit 1
+          fi
+          echo "PASS: .bashrc not accessible"
+
+          echo "--- Agent cannot read .ssh from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
+            echo "FAIL: agent could list .ssh from host home"
+            exit 1
+          fi
+          echo "PASS: .ssh not accessible"
+
+          echo "--- Agent cannot create files in synthetic home dir ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
+            echo "FAIL: agent could create files in host home"
+            exit 1
+          fi
+          echo "PASS: cannot create files in synthetic home dir"
+
+          echo ""
+          echo "PASS: host home directory properly isolated"
+
+      # ── 20. Test spawn works via host-side path as cwd ──────
+      - name: "Test: spawn works via host-side path as cwd"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Running whoami with host-side Projects path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (Projects/myproject)"
+
+          echo "--- Running whoami with host-side work path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/work/mywork" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (work/mywork)"
+
+          echo "--- File operations via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/myproject/spawn_test_file'"
+          [[ -f "$HOME/Projects/myproject/spawn_test_file" ]] || \
+            { echo "FAIL: file not created on host"; exit 1; }
+          grep -q 'spawn-test' "$HOME/Projects/myproject/spawn_test_file" || \
+            { echo "FAIL: file content mismatch"; exit 1; }
+          rm -f "$HOME/Projects/myproject/spawn_test_file"
+          echo "PASS: file creation via host-side path"
+
+          echo "--- ls via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'ls -la' > /dev/null
+          echo "PASS: ls works with host-side cwd"
+
+          echo ""
+          echo "PASS: spawn works via host-side paths"
+
+      # ── 21. Test inotify watcher works through symlinked path
+      - name: "Test: inotify watcher works through symlinked path"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          TEST_FILE="inotify_symlink_test"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Creating file via symlinked host path inside container ---"
+          sudo podman exec --user agent contAIn touch "$HOME/Projects/myproject/${TEST_FILE}"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          for i in $(seq 1 20); do
+            OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE" 2>/dev/null) || true
+            if [[ "$OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          FINAL_OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$PROJECT/$TEST_FILE")
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          rm -f "$PROJECT/$TEST_FILE"
+          echo ""
+          echo "PASS: inotify watcher works through symlink"
+
+      # ── Diagnostics on failure ─────────────────────────────
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          echo "============================================"
+          echo "  DIAGNOSTICS"
+          echo "============================================"
+
+          echo ""
+          echo "=== OS / Podman / Nix info ==="
+          cat /etc/os-release | head -5
+          podman --version
+          podman info --format '{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
+          nix --version || true
+
+          echo ""
+          echo "=== Nix flake outputs ==="
+          nix flake show 2>&1 || true
+
+          echo ""
+          echo "=== Nix build result ==="
+          ls -la result/ 2>&1 || echo "(no result symlink)"
+
+          echo ""
+          echo "=== Users and groups ==="
+          id agent 2>&1 || echo "(agent user not found)"
+          id -gn "$USER" 2>&1
+          id "$USER" 2>&1
+
+          echo ""
+          echo "=== systemctl status ==="
+          systemctl status contAIn.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl status contain-watcher.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl list-timers contain-commit --no-pager 2>&1 || true
+
+          echo ""
+          echo "=== podman ps ==="
+          sudo podman ps -a 2>&1 || true
+
+          echo ""
+          echo "=== container logs ==="
+          sudo podman logs contAIn 2>&1 | tail -50 || true
+
+          echo ""
+          echo "=== journal (contain) ==="
+          journalctl -u contAIn --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== journal (watcher) ==="
+          journalctl -u contain-watcher --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== generated quadlet ==="
+          cat /etc/containers/systemd/contAIn.container 2>&1 || true
+
+          echo ""
+          echo "=== generated watcher service ==="
+          cat /etc/systemd/system/contain-watcher.service 2>&1 || true
+
+          echo ""
+          echo "=== contain config.json ==="
+          cat "$HOME/.config/contain/config.json" 2>&1 || true
+
+          echo ""
+          echo "=== contain opencode.json ==="
+          cat "$HOME/.config/contain/opencode.json" 2>&1 || true
+
+          echo ""
+          echo "=== project directory ==="
+          ls -la "$HOME/Projects/" 2>&1 || true
+
+          echo ""
+          echo "=== podman images ==="
+          sudo podman images 2>&1 || true
+; then
+            echo "FAIL: contain container is not running"
+            echo "--- Container logs ---"
+            sudo podman logs contAIn 2>&1 | tail -50 || true
+            exit 1
+          fi
+
+          echo "--- Creating directory as agent user via podman exec ---"
+          sudo podman exec --user agent contAIn mkdir "$CONTAINER_TEST_DIR"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          # The watcher should reassign ownership.
+          for i in $(seq 1 20); do
+            CURRENT_OWNER=$(stat -c '%U' "$TEST_DIR" 2>/dev/null) || true
+            if [[ "$CURRENT_OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          echo "--- Verifying final state ---"
+          PERMS=$(stat -c '%a' "$TEST_DIR")
+          FINAL_OWNER=$(stat -c '%U' "$TEST_DIR")
+          FINAL_GROUP=$(stat -c '%G' "$TEST_DIR")
+
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP perms=$PERMS"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          # Check setgid: stat %a on a setgid dir returns 2xxx or the
+          # group digit includes the setgid flag. Use %A for symbolic.
+          SYMBOLIC=$(stat -c '%A' "$TEST_DIR")
+          echo "$SYMBOLIC" | grep -q 's\|S' \
+            && echo "PASS: setgid bit set" \
+            || { echo "FAIL: setgid bit not set (perms: $SYMBOLIC)"; exit 1; }
+
+          echo ""
+          echo "PASS: watcher directory handling"
+
+      # ── 13. Test read-only mounts ──────────────────────────
+      - name: "Test: config and auth mounts are read-only"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+          CONTAINERD_CONFIG="$HOME/.config/contain"
+
+          echo "--- Testing write to contain config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${CONTAINERD_CONFIG}/opencode.json:/etc/contain/opencode.json:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /etc/contain/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to config"
+            exit 1
+          else
+            echo "PASS: config mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode data dir (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.local/share/opencode:/home/agent/.local/share/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.local/share/opencode/auth.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to auth data"
+            exit 1
+          else
+            echo "PASS: data mount is read-only"
+          fi
+
+          echo "--- Testing write to opencode global config (expect: BLOCKED) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "$HOME/.config/opencode:/home/agent/.config/opencode:ro" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> /home/agent/.config/opencode/opencode.json" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to global config"
+            exit 1
+          else
+            echo "PASS: global config mount is read-only"
+          fi
+
+          echo ""
+          echo "PASS: read-only mounts"
+
+      # ── 14. Test prepare-permissions (Nix-built binary) ────
+      - name: "Test: prepare-permissions (Nix-built binary)"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects"
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          NIX_PREPARE_PERMS="$(pwd)/result/bin/contain-prepare-permissions"
+          echo "--- Using Nix-built binary: $NIX_PREPARE_PERMS ---"
+          [[ -x "$NIX_PREPARE_PERMS" ]] || \
+            { echo "FAIL: $NIX_PREPARE_PERMS not found or not executable"; exit 1; }
+
+          # Create a test subdirectory with various files
+          TEST_DIR="$PROJECT/perm_test"
+          mkdir -p "$TEST_DIR"
+
+          echo "--- Creating test files ---"
+          
+          # Sensitive files (script should NOT lock by default)
+          echo "SECRET_KEY=abc123" > "$TEST_DIR/.env"
+          chmod 644 "$TEST_DIR/.env"
+          
+          echo "LOCAL_SECRET=xyz" > "$TEST_DIR/.env.local"
+          chmod 644 "$TEST_DIR/.env.local"
+          
+          mkdir -p "$TEST_DIR/secrets"
+          echo "password" > "$TEST_DIR/secrets/password.txt"
+          chmod 755 "$TEST_DIR/secrets"
+          chmod 644 "$TEST_DIR/secrets/password.txt"
+          
+          echo "PRIVATE KEY" > "$TEST_DIR/id_rsa"
+          chmod 644 "$TEST_DIR/id_rsa"
+          
+          # .git directory (should be set read-only)
+          mkdir -p "$TEST_DIR/.git/objects"
+          echo "ref: refs/heads/main" > "$TEST_DIR/.git/HEAD"
+          chmod 755 "$TEST_DIR/.git"
+          chmod 644 "$TEST_DIR/.git/HEAD"
+          
+          # Regular file - user opts in to agent write access
+          echo "source code" > "$TEST_DIR/main.py"
+          chmod 664 "$TEST_DIR/main.py"  # User explicitly sets g+rw
+          
+          # File user wants agent to read only
+          echo "read-only-for-agent" > "$TEST_DIR/readonly.txt"
+          chmod 640 "$TEST_DIR/readonly.txt"  # g=r (user's choice)
+          
+          # Subdirectory that needs to be traversable
+          mkdir -p "$TEST_DIR/subdir"
+          echo "nested file" > "$TEST_DIR/subdir/nested.py"
+          # Don't set group - script should make it traversable
+          
+          echo "--- Initial permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "--- Running Nix-built contain-prepare-permissions (default: no lock) ---"
+          sudo "$NIX_PREPARE_PERMS" --no-lock-sensitive "$TEST_DIR"
+
+          echo ""
+          echo "--- Final permissions ---"
+          ls -la "$TEST_DIR/"
+          ls -la "$TEST_DIR/.git/" || true
+          ls -la "$TEST_DIR/secrets/" || true
+          ls -la "$TEST_DIR/subdir/" || true
+
+          echo ""
+          echo "=== Verifying default behavior (sensitive files NOT locked) ==="
+          
+          echo "--- .env should be unchanged (still 644) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR/.env")
+          [[ "$ENV_MODE" == "644" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: .env unchanged"
+
+          echo "--- secrets/ should be unchanged (still 755) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR/secrets")
+          [[ "$SECRETS_MODE" == "755" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=755 (unchanged)"; exit 1; }
+          echo "PASS: secrets/ unchanged"
+
+          echo "--- id_rsa should be unchanged (still 644) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR/id_rsa")
+          [[ "$KEY_MODE" == "644" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=644 (unchanged)"; exit 1; }
+          echo "PASS: id_rsa unchanged"
+
+          echo ""
+          echo "=== Verifying .git/ is read-only ==="
+          GIT_PERMS=$(stat -c '%A' "$TEST_DIR/.git")
+          if echo "$GIT_PERMS" | grep -q 'w.....$'; then
+            echo "FAIL: .git has group write: $GIT_PERMS"
+            exit 1
+          fi
+          echo "PASS: .git is read-only for group ($GIT_PERMS)"
+
+          echo ""
+          echo "=== Verifying directories are traversable ==="
+          
+          echo "--- subdir should be g+rx (traversable) ---"
+          SUBDIR_PERMS=$(stat -c '%A' "$TEST_DIR/subdir")
+          echo "$SUBDIR_PERMS" | grep -q 'r.s' || echo "$SUBDIR_PERMS" | grep -q 'r.x' || \
+            { echo "FAIL: subdir not traversable: $SUBDIR_PERMS"; exit 1; }
+          echo "PASS: subdir is traversable ($SUBDIR_PERMS)"
+
+          echo ""
+          echo "=== Verifying user-set file permissions are preserved ==="
+          
+          echo "--- main.py should still be 664 (user set g+rw) ---"
+          MAIN_PERMS=$(stat -c '%a' "$TEST_DIR/main.py")
+          [[ "$MAIN_PERMS" == "664" ]] || \
+            { echo "FAIL: main.py perms=$MAIN_PERMS, expected=664"; exit 1; }
+          echo "PASS: main.py preserved (664)"
+
+          echo "--- readonly.txt should still be 640 (user set g+r) ---"
+          RO_PERMS=$(stat -c '%a' "$TEST_DIR/readonly.txt")
+          [[ "$RO_PERMS" == "640" ]] || \
+            { echo "FAIL: readonly.txt perms=$RO_PERMS, expected=640"; exit 1; }
+          echo "PASS: readonly.txt preserved (640)"
+
+          echo ""
+          echo "=== Verifying agent access via container ==="
+          WORKSPACE_TEST="/workspace/perm_test"
+
+          echo "--- agent CAN read .git/HEAD (read-only) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/.git/HEAD" > /dev/null || \
+            { echo "FAIL: agent should be able to read .git/HEAD"; exit 1; }
+          echo "PASS: agent can read .git/HEAD"
+
+          echo "--- agent CANNOT write to .git/HEAD ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/.git/HEAD'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to .git/HEAD"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to .git/"
+
+          echo "--- agent CAN read main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/main.py" > /dev/null || \
+            { echo "FAIL: agent should be able to read main.py"; exit 1; }
+          echo "PASS: agent can read main.py"
+
+          echo "--- agent CAN write to main.py (user granted g+rw) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo '# comment' >> '${WORKSPACE_TEST}/main.py'" || \
+            { echo "FAIL: agent should be able to write to main.py"; exit 1; }
+          echo "PASS: agent can write to main.py"
+
+          echo "--- agent CAN read readonly.txt (user granted g+r) ---"
+          sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST}/readonly.txt" > /dev/null || \
+            { echo "FAIL: agent should be able to read readonly.txt"; exit 1; }
+          echo "PASS: agent can read readonly.txt"
+
+          echo "--- agent CANNOT write to readonly.txt (user set g+r only) ---"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR}:${WORKSPACE_TEST}:rw" \
+            --entrypoint sh \
+            localhost/contain:latest \
+            -c "echo 'tamper' >> '${WORKSPACE_TEST}/readonly.txt'" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to write to readonly.txt"
+            exit 1
+          fi
+          echo "PASS: agent blocked from writing to readonly.txt"
+
+          echo ""
+          echo "=== Testing --lock-sensitive flag ==="
+          
+          # Create fresh sensitive files for lock test
+          TEST_DIR2="$PROJECT/perm_test_lock"
+          mkdir -p "$TEST_DIR2"
+          echo "SECRET" > "$TEST_DIR2/.env"
+          chmod 644 "$TEST_DIR2/.env"
+          mkdir -p "$TEST_DIR2/secrets"
+          echo "password" > "$TEST_DIR2/secrets/pass.txt"
+          chmod 755 "$TEST_DIR2/secrets"
+          echo "PRIVATE KEY" > "$TEST_DIR2/id_rsa"
+          chmod 644 "$TEST_DIR2/id_rsa"
+          
+          echo "--- Running with --lock-sensitive ---"
+          sudo "$NIX_PREPARE_PERMS" --lock-sensitive "$TEST_DIR2"
+          
+          echo "--- .env should be locked (600) ---"
+          ENV_MODE=$(stat -c '%a' "$TEST_DIR2/.env")
+          [[ "$ENV_MODE" == "600" ]] || \
+            { echo "FAIL: .env mode=$ENV_MODE, expected=600"; exit 1; }
+          echo "PASS: .env locked (600)"
+
+          echo "--- secrets/ should be locked (700) ---"
+          SECRETS_MODE=$(stat -c '%a' "$TEST_DIR2/secrets")
+          [[ "$SECRETS_MODE" == "700" ]] || \
+            { echo "FAIL: secrets/ mode=$SECRETS_MODE, expected=700"; exit 1; }
+          echo "PASS: secrets/ locked (700)"
+
+          echo "--- id_rsa should be locked (600) ---"
+          KEY_MODE=$(stat -c '%a' "$TEST_DIR2/id_rsa")
+          [[ "$KEY_MODE" == "600" ]] || \
+            { echo "FAIL: id_rsa mode=$KEY_MODE, expected=600"; exit 1; }
+          echo "PASS: id_rsa locked (600)"
+
+          echo "--- agent CANNOT read locked .env ---"
+          WORKSPACE_TEST2="/workspace/perm_test_lock"
+          if sudo podman run --rm \
+            --user ${AGENT_UID}:${PRIMARY_GID} \
+            -v "${TEST_DIR2}:${WORKSPACE_TEST2}:rw" \
+            --entrypoint cat \
+            localhost/contain:latest "${WORKSPACE_TEST2}/.env" 2>/dev/null; then
+            echo "FAIL: agent should NOT be able to read locked .env"
+            exit 1
+          fi
+          echo "PASS: agent blocked from locked .env"
+
+          echo ""
+          echo "PASS: prepare-permissions (Nix-built binary)"
+
+      # ── 15. Test idempotency ───────────────────────────────
+      - name: "Test: idempotency (re-run setup.sh)"
+        run: |
+          set -euo pipefail
+          echo "--- Running setup.sh a second time ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying services are still running ---"
+          sleep 3
+          sudo podman ps -a --filter name=contain \
+            --format 'table {{.Names}}\t{{.Status}}'
+          systemctl is-active contain-watcher.service
+
+          echo "--- Verifying config is unchanged ---"
+          POLICY="$HOME/.config/contain/opencode.json"
+          jq -e '.permission.external_directory' "$POLICY" > /dev/null
+
+          echo ""
+          echo "PASS: idempotency"
+
+      # ── 16. Test TUI script installation ────────────────────
+      - name: "Test: contain-tui script"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking TUI script is installed ---"
+          [[ -x /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui not found or not executable"; exit 1; }
+
+          echo "--- Checking TUI script is a symlink ---"
+          [[ -L /usr/local/bin/contain-tui ]] || \
+            { echo "FAIL: /usr/local/bin/contain-tui is not a symlink"; exit 1; }
+
+          echo "--- Checking symlink target exists ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          [[ -f "$TARGET" ]] || \
+            { echo "FAIL: symlink target $TARGET does not exist"; exit 1; }
+
+          echo "--- Syntax-checking TUI script ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          bash -n "$TARGET"
+
+          echo "--- Asserting TUI uses systemctl is-active (not podman ps) ---"
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps"; exit 1; }
+
+          echo "PASS: contain-tui script"
+
+      # ── 16a. Test Nix TUI handles missing OpenCode dirs ─────
+      - name: "Test: Nix TUI handles missing OpenCode dirs"
+        run: |
+          set -euo pipefail
+
+          echo "--- Simulating partially-failed nixos-rebuild activation ---"
+          # On NixOS, the contain-image activation step (podman build) runs
+          # before contain-dirs.  If the build aborted (e.g. groupadd exit 9),
+          # contain-dirs never ran and ~/.local/share/opencode never existed.
+          # The Nix tuiScript has a defensive guard that creates these dirs when
+          # running as root (sudo contain-tui).  The dir assertions below
+          # validate the guard by checking that setup.sh re-creates them correctly.
+          sudo rm -rf "$HOME/.local/share/opencode" "$HOME/.config/opencode"
+
+          echo "--- Verifying dirs are gone ---"
+          [[ ! -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: expected ~/.local/share/opencode to be absent"; exit 1; }
+          [[ ! -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: expected ~/.config/opencode to be absent"; exit 1; }
+          echo "    Dirs confirmed absent"
+
+          echo "--- Re-running setup.sh (should re-create the missing dirs) ---"
+          echo "Y" | sudo -E ./scripts/setup.sh
+
+          echo "--- Verifying ~/.local/share/opencode was re-created ---"
+          [[ -d "$HOME/.local/share/opencode" ]] || \
+            { echo "FAIL: ~/.local/share/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.local/share/opencode")
+          MODE=$(stat -c '%a' "$HOME/.local/share/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.local/share/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.local/share/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.local/share/opencode owner=$OWNER mode=$MODE"
+
+          echo "--- Verifying ~/.config/opencode was re-created ---"
+          [[ -d "$HOME/.config/opencode" ]] || \
+            { echo "FAIL: ~/.config/opencode not re-created"; exit 1; }
+          OWNER=$(stat -c '%U' "$HOME/.config/opencode")
+          MODE=$(stat -c '%a' "$HOME/.config/opencode")
+          [[ "$OWNER" == "$USER" ]] || \
+            { echo "FAIL: ~/.config/opencode owner=$OWNER expected=$USER"; exit 1; }
+          [[ "$MODE" == "770" ]] || \
+            { echo "FAIL: ~/.config/opencode mode=$MODE expected=770"; exit 1; }
+          echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
+
+          echo ""
+          echo "PASS: Nix TUI handles missing OpenCode dirs"
+
+      # ── 16b. Test Nix TUI service check works without sudo ──
+      - name: "Test: Nix TUI service check works without sudo (Bug 2)"
+        run: |
+          set -euo pipefail
+
+          # Bug 2: the old tuiScript used `podman ps` which only sees rootless
+          # containers.  The rootful container managed by systemd/Quadlet is
+          # invisible without root, so `podman ps` always reported "not running"
+          # for unprivileged users.  The fix uses `systemctl is-active` instead,
+          # which is readable by any user.
+          #
+          # This test runs the Nix TUI as the unprivileged runner user (no sudo).
+          # It should pass the service-running check (systemctl is-active succeeds
+          # because the container service is running from earlier tests), then fail
+          # at `podman run` because accessing the rootful image store requires root.
+          # The critical assertion is that it does NOT emit "container is not running".
+
+          echo "--- Verifying contAIn.service is active (rootful) ---"
+          systemctl is-active contAIn.service || \
+            { echo "SKIP: contAIn.service is not active; skipping test"; exit 0; }
+
+          echo "--- Asserting TUI source uses systemctl is-active (not podman ps) ---"
+          TARGET=$(readlink -f /usr/local/bin/contain-tui)
+          grep -q "systemctl is-active" "$TARGET" || \
+            { echo "FAIL: TUI does not use systemctl is-active (Bug 2 regression)"; exit 1; }
+          grep -qv "podman ps.*contain" "$TARGET" || \
+            { echo "FAIL: TUI still uses podman ps (Bug 2 regression)"; exit 1; }
+
+          echo "PASS: TUI service check works without sudo (Bug 2)"
+
+      # ── 17. Test path_map in config.json ────────────────────
+      - name: "Test: path_map in config.json"
+        run: |
+          set -euo pipefail
+          CONFIG="$HOME/.config/contain/config.json"
+
+          echo "--- Checking path_map exists in config ---"
+          jq -e '.path_map' "$CONFIG" > /dev/null || \
+            { echo "FAIL: path_map not found in config.json"; exit 1; }
+
+          echo "--- Checking path_map has correct entries ---"
+          MAP=$(jq -r '.path_map | to_entries[] | "\(.key) -> \(.value)"' "$CONFIG")
+          echo "$MAP"
+
+          # Verify both project paths are mapped
+          COUNT=$(jq '.path_map | length' "$CONFIG")
+          [[ "$COUNT" -eq 2 ]] || \
+            { echo "FAIL: expected 2 path_map entries, got $COUNT"; exit 1; }
+
+          echo "--- Checking each host path maps to a /workspace path ---"
+          jq -r '.path_map | to_entries[] | .value' "$CONFIG" | while read -r cpath; do
+            [[ "$cpath" == /workspace/* ]] || \
+              { echo "FAIL: container path '$cpath' does not start with /workspace/"; exit 1; }
+          done
+
+          echo "--- Checking specific mappings ---"
+          jq -e ".path_map[\"$HOME/Projects\"]" "$CONFIG" | grep -q '/workspace/Projects' || \
+            { echo "FAIL: Projects path not correctly mapped"; exit 1; }
+          jq -e ".path_map[\"$HOME/work\"]" "$CONFIG" | grep -q '/workspace/work' || \
+            { echo "FAIL: work path not correctly mapped"; exit 1; }
+
+          echo "PASS: path_map in config.json"
+
+      # ── 18. Test host-path symlinks exist in container ──────
+      - name: "Test: host-path symlinks exist in container"
+        run: |
+          set -euo pipefail
+
+          echo "--- Checking symlink for Projects ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/Projects")
+          echo "    $HOME/Projects -> $LINK"
+          [[ "$LINK" == "/workspace/Projects" ]] || \
+            { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
+          echo "PASS: Projects symlink correct"
+
+          echo "--- Checking symlink for work ---"
+          LINK=$(sudo podman exec contAIn readlink "$HOME/work")
+          echo "    $HOME/work -> $LINK"
+          [[ "$LINK" == "/workspace/work" ]] || \
+            { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
+          echo "PASS: work symlink correct"
+
+          echo "--- Checking parent directory exists and is owned by root ---"
+          PARENT_OWNER=$(sudo podman exec contAIn stat -c '%U' "$(dirname "$HOME/Projects")")
+          echo "    Parent dir owner: $PARENT_OWNER"
+          [[ "$PARENT_OWNER" == "root" ]] || \
+            { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
+          echo "PASS: parent directory owned by root"
+
+          echo "--- Checking ls through symlink shows real contents ---"
+          sudo podman exec contAIn ls "$HOME/Projects" > /dev/null
+          echo "PASS: ls through symlink works"
+
+          echo ""
+          echo "PASS: host-path symlinks"
+
+      # ── 19. Test agent cannot access host home contents ─────
+      - name: "Test: agent cannot access host home directory contents"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Listing synthetic home dir inside container ---"
+          CONTENTS=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /bin/sh -c "ls -la $(dirname "$HOME/Projects")/ 2>&1") || true
+          echo "$CONTENTS"
+
+          echo "--- Agent cannot read .bashrc from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn cat "$(dirname "$HOME/Projects")/.bashrc" 2>/dev/null; then
+            echo "FAIL: agent could read .bashrc from host home"
+            exit 1
+          fi
+          echo "PASS: .bashrc not accessible"
+
+          echo "--- Agent cannot read .ssh from host home ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn ls "$(dirname "$HOME/Projects")/.ssh/" 2>/dev/null; then
+            echo "FAIL: agent could list .ssh from host home"
+            exit 1
+          fi
+          echo "PASS: .ssh not accessible"
+
+          echo "--- Agent cannot create files in synthetic home dir ---"
+          if sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn touch "$(dirname "$HOME/Projects")/test_escape" 2>/dev/null; then
+            echo "FAIL: agent could create files in host home"
+            exit 1
+          fi
+          echo "PASS: cannot create files in synthetic home dir"
+
+          echo ""
+          echo "PASS: host home directory properly isolated"
+
+      # ── 20. Test spawn works via host-side path as cwd ──────
+      - name: "Test: spawn works via host-side path as cwd"
+        run: |
+          set -euo pipefail
+          AGENT_UID=$(id -u agent)
+          PRIMARY_GID=$(id -g "$USER")
+
+          echo "--- Running whoami with host-side Projects path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (Projects/myproject)"
+
+          echo "--- Running whoami with host-side work path as cwd ---"
+          RESULT=$(sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/work/mywork" \
+            contAIn /usr/bin/bash -c 'whoami')
+          [[ "$RESULT" == "agent" ]] || \
+            { echo "FAIL: whoami returned '$RESULT', expected 'agent'"; exit 1; }
+          echo "PASS: whoami works with host-side cwd (work/mywork)"
+
+          echo "--- File operations via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            contAIn /usr/bin/bash -c "echo 'spawn-test' > '$HOME/Projects/myproject/spawn_test_file'"
+          [[ -f "$HOME/Projects/myproject/spawn_test_file" ]] || \
+            { echo "FAIL: file not created on host"; exit 1; }
+          grep -q 'spawn-test' "$HOME/Projects/myproject/spawn_test_file" || \
+            { echo "FAIL: file content mismatch"; exit 1; }
+          rm -f "$HOME/Projects/myproject/spawn_test_file"
+          echo "PASS: file creation via host-side path"
+
+          echo "--- ls via host-side path ---"
+          sudo podman exec --user ${AGENT_UID}:${PRIMARY_GID} \
+            --workdir "$HOME/Projects/myproject" \
+            contAIn /usr/bin/bash -c 'ls -la' > /dev/null
+          echo "PASS: ls works with host-side cwd"
+
+          echo ""
+          echo "PASS: spawn works via host-side paths"
+
+      # ── 21. Test inotify watcher works through symlinked path
+      - name: "Test: inotify watcher works through symlinked path"
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/Projects/myproject"
+          TEST_FILE="inotify_symlink_test"
+          EXPECTED_GROUP="$(id -gn)"
+
+          echo "--- Creating file via symlinked host path inside container ---"
+          sudo podman exec --user agent contAIn touch "$HOME/Projects/myproject/${TEST_FILE}"
+
+          echo "--- Waiting for watcher to process (polling up to 10s) ---"
+          for i in $(seq 1 20); do
+            OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE" 2>/dev/null) || true
+            if [[ "$OWNER" == "$USER" ]]; then
+              echo "    Watcher completed after ~$((i / 2))s"
+              break
+            fi
+            sleep 0.5
+          done
+
+          FINAL_OWNER=$(stat -c '%U' "$PROJECT/$TEST_FILE")
+          FINAL_GROUP=$(stat -c '%G' "$PROJECT/$TEST_FILE")
+          echo "    owner=$FINAL_OWNER group=$FINAL_GROUP"
+
+          [[ "$FINAL_OWNER" == "$USER" ]] || \
+            { echo "FAIL: owner=$FINAL_OWNER, expected=$USER"; exit 1; }
+          [[ "$FINAL_GROUP" == "$EXPECTED_GROUP" ]] || \
+            { echo "FAIL: group=$FINAL_GROUP, expected=$EXPECTED_GROUP"; exit 1; }
+
+          rm -f "$PROJECT/$TEST_FILE"
+          echo ""
+          echo "PASS: inotify watcher works through symlink"
+
+      # ── Diagnostics on failure ─────────────────────────────
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          echo "============================================"
+          echo "  DIAGNOSTICS"
+          echo "============================================"
+
+          echo ""
+          echo "=== OS / Podman / Nix info ==="
+          cat /etc/os-release | head -5
+          podman --version
+          podman info --format '{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
+          nix --version || true
+
+          echo ""
+          echo "=== Nix flake outputs ==="
+          nix flake show 2>&1 || true
+
+          echo ""
+          echo "=== Nix build result ==="
+          ls -la result/ 2>&1 || echo "(no result symlink)"
+
+          echo ""
+          echo "=== Users and groups ==="
+          id agent 2>&1 || echo "(agent user not found)"
+          id -gn "$USER" 2>&1
+          id "$USER" 2>&1
+
+          echo ""
+          echo "=== systemctl status ==="
+          systemctl status contAIn.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl status contain-watcher.service --no-pager 2>&1 || true
+          echo "---"
+          systemctl list-timers contain-commit --no-pager 2>&1 || true
+
+          echo ""
+          echo "=== podman ps ==="
+          sudo podman ps -a 2>&1 || true
+
+          echo ""
+          echo "=== container logs ==="
+          sudo podman logs contAIn 2>&1 | tail -50 || true
+
+          echo ""
+          echo "=== journal (contain) ==="
+          journalctl -u contAIn --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== journal (watcher) ==="
+          journalctl -u contain-watcher --no-pager -n 30 2>&1 || true
+
+          echo ""
+          echo "=== generated quadlet ==="
+          cat /etc/containers/systemd/contAIn.container 2>&1 || true
 
           echo ""
           echo "=== generated watcher service ==="
