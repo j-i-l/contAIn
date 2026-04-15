@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "contain Configuration",
+  "type": "object",
+  "properties": {
+    "primary_user": { "type": "string" },
+    "primary_home": { "type": "string" },
+    "project_paths": { "type": "array", "items": { "type": "string" } },
+    "agent_user": { "type": "string", "default": "agent" },
+    "host": { "type": "string", "default": "127.0.0.1" },
+    "port": { "type": "integer", "default": 3000 },
+    "install_dir": { "type": "string", "default": "/opt/cont-ai-nerd" },
+    "agent_systems": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/AgentSystem"
+      },
+        "default": {
+        "opencode": {
+          "name": "opencode",
+          "type": "opencode",
+          "enabled": true,
+          "container": {
+            "name": "contain",
+            "image": "localhost/contain:latest"
+          },
+          "server": {
+            "host": "127.0.0.1",
+            "port": 3000
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "AgentSystem": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["opencode", "custom"] },
+        "enabled": { "type": "boolean", "default": true },
+        "container": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "image": { "type": "string" }
+          }
+        },
+        "server": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer" }
+          }
+        },
+        "custom": {
+          "type": "object",
+          "properties": {
+            "start_command": { "type": "string" },
+            "stop_command": { "type": "string" },
+            "status_command": { "type": "string" },
+            "tui_command": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
