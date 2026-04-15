@@ -23,20 +23,23 @@ export class App {
   private sudoPassword: string | null = null;
 
   // ANSI escape codes for inline coloring
-  private static readonly DG = '\x1b[90m';        // dark gray (letters)
-  private static readonly PC = '\x1b[38;5;223m';  // pale cream (brackets)
-  private static readonly RST = '\x1b[0m';
+  private static readonly PG = '\x1b[38;5;248m';  // pale gray (cont, n)
+  private static readonly SH = '\x1b[38;5;244m';  // shadow (darker gray)
+  private static readonly BO = '\x1b[38;5;208m';  // bright orange (brackets)
+  private static readonly WH = '\x1b[38;5;255m';   // pure white (AI)
+  private static readonly R = '\x1b[0m';
 
-  private static readonly LOGO_LINES = [
-    `                    ${App.PC}████${App.RST}     ${App.PC}████${App.RST}`,
-    `                    ${App.DG}█${App.PC}█${App.RST}  ${App.DG}███${App.RST} ${App.DG}███${App.PC}██${App.RST}`,
-    `                    ${App.DG}█${App.PC}█${App.RST} ${App.DG}█${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.RST} ${App.PC}██${App.RST}`,
-    `     ${App.DG}███${App.RST}  ${App.DG}███${App.RST} ${App.DG}██████████${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.RST} ${App.PC}█${App.DG}████${App.RST}`,
-    `    ${App.DG}█${App.RST}    ${App.DG}█${App.RST}   ${App.DG}██${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.PC}█${App.RST} ${App.DG}█████${App.RST} ${App.DG}█${App.RST} ${App.PC}█${App.DG}█${App.RST}   ${App.DG}█${App.RST}`,
-    `    ${App.DG}█${App.RST}    ${App.DG}█${App.RST}   ${App.DG}██${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.PC}█${App.RST} ${App.DG}█${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.RST} ${App.PC}█${App.DG}█${App.RST}   ${App.DG}█${App.RST}`,
-    `    ${App.DG}█${App.RST}    ${App.DG}█${App.RST}   ${App.DG}██${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.PC}█${App.RST} ${App.DG}█${App.RST}   ${App.DG}█${App.RST} ${App.DG}█${App.RST} ${App.PC}█${App.DG}█${App.RST}   ${App.DG}█${App.RST}`,
-    `     ${App.DG}███${App.RST}  ${App.DG}███${App.RST} ${App.DG}█${App.RST}   ${App.DG}█${App.RST} ${App.DG}████${App.RST}   ${App.DG}████${App.PC}█${App.DG}█${App.RST}   ${App.DG}█${App.RST}`,
-    `                    ${App.PC}████${App.RST}     ${App.PC}████${App.RST}`,
+  private static readonly LOGO_WIDTH = 39;
+
+  //  cont[AI]n — 6 lines, 39 columns
+  //  ░=space  █▀▄▄▀=solid(colored)  ▒=shadow
+  private static readonly LOGO_LINES_RAW = [
+    `                    ${App.BO}▄▄${App.R}        ${App.BO}▄▄${App.R}       `,
+    `                ${App.SH}▒${App.PG}█${App.R}  ${App.BO}█${App.SH}▒${App.WH}█▀▀▄${App.R} ${App.WH}▀█▀${App.R} ${App.BO}█${App.R}       `,
+    ` ${App.SH}▒${App.PG}█▀▄${App.R} ${App.PG}▄▀▀▄${App.SH}▒${App.PG}█▀▀▄${App.R} ${App.PG}▀█▀${App.R} ${App.BO}█${App.SH}▒${App.WH}█▄▄█${App.R} ${App.SH}▒${App.WH}█${App.R}  ${App.BO}█${App.SH}▒${App.PG}█▀▀▄${App.R}  `,
+    ` ${App.SH}▒${App.PG}█${App.R}  ${App.SH}▒${App.PG}█${App.R} ${App.SH}▒${App.PG}█${App.SH}▒${App.PG}█${App.R} ${App.SH}▒${App.PG}█${App.R} ${App.SH}▒${App.PG}█${App.R}  ${App.BO}█${App.SH}▒${App.WH}█${App.R} ${App.SH}▒${App.WH}█${App.R} ${App.SH}▒${App.WH}█${App.R}  ${App.BO}█${App.SH}▒${App.PG}█${App.R} ${App.SH}▒${App.PG}█${App.R}  `,
+    `  ${App.PG}▀▀▀${App.R}  ${App.PG}▀▀${App.R}  ${App.PG}▀${App.R}  ${App.PG}▀${App.R}  ${App.PG}▀${App.R}  ${App.BO}█${App.R} ${App.WH}▀${App.R}  ${App.WH}▀${App.R} ${App.WH}▀▀▀${App.R} ${App.BO}█${App.R} ${App.PG}▀${App.R}  ${App.PG}▀${App.R}  `,
+    `                    ${App.BO}▀▀${App.R}        ${App.BO}▀▀${App.R}       `,
   ];
 
   async init(): Promise<void> {
@@ -58,17 +61,18 @@ export class App {
 
     this.logoBox = blessed.box({
       width: '100%',
-      height: 10,
+      height: 7,
       left: 0,
       top: 0,
-      content: App.LOGO_LINES.join('\n'),
+      tags: false,
+      content: '',
     });
 
     this.leftPanel = blessed.box({
       width: '30%',
-      height: '100%-13',
+      height: '100%-10',
       left: 0,
-      top: 10,
+      top: 7,
       border: { type: 'line', fg: 'cyan' } as any,
       style: { border: { fg: 'cyan' } },
     });
@@ -76,8 +80,8 @@ export class App {
     this.rightPanel = blessed.box({
       width: '70%',
       left: '30%',
-      top: 10,
-      height: '100%-13',
+      top: 7,
+      height: '100%-10',
       border: { type: 'line', fg: 'green' } as any,
       style: { border: { fg: 'green' } },
     });
@@ -382,9 +386,18 @@ ${' '.repeat(10)}Press any key to continue...
   }
 
   private render(): void {
+    this.renderLogo();
     this.renderLeftPanel();
     this.renderRightPanel();
     this.screen.render();
+  }
+
+  private renderLogo(): void {
+    const screenWidth = (this.screen.width as number) || 80;
+    const pad = Math.max(0, Math.floor((screenWidth - App.LOGO_WIDTH) / 2));
+    const prefix = ' '.repeat(pad);
+    const centered = App.LOGO_LINES_RAW.map(line => prefix + line);
+    this.logoBox.setContent(centered.join('\n'));
   }
 
   private renderLeftPanel(): void {

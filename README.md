@@ -1,8 +1,16 @@
-# contAIn
+# cont[AI]n
+
+░░░░░░░░░░░░░░░░░░░░▄▄░░░░░░░░▄▄░░░░░░░
+░░░░░░░░░░░░░░░░▒█░░█▒█▀▀▄░▀█▀░█░░░░░░░
+░▒█▀▄░▄▀▀▄▒█▀▀▄░▀█▀░█▒█▄▄█░▒█░░█▒█▀▀▄░░
+░▒█░░▒█░▒█▒█░▒█░▒█░░█▒█░▒█░▒█░░█▒█░▒█░░
+░░▀▀▀░░▀▀░░▀░░▀░░▀░░█░▀░░▀░▀▀▀░█░▀░░▀░░
+░░░░░░░░░░░░░░░░░░░░▀▀░░░░░░░░▀▀░░░░░░░
+
 
 **Sandboxed AI coding agent powered by [OpenCode](https://opencode.ai), running in a rootful Podman container with file system isolation and automatic change tracking.**
 
-contAIn provides a secure, containerized environment for running an AI coding assistant that can read and write files in your project directories while maintaining strict isolation from the rest of your system.
+cont[AI]n provides a secure, containerized environment for running an AI coding assistant that can read and write files in your project directories while maintaining strict isolation from the rest of your system.
 
 ---
 
@@ -36,7 +44,7 @@ contAIn provides a secure, containerized environment for running an AI coding as
 
 ## Overview
 
-contAIn creates a sandboxed environment where an AI coding agent (OpenCode) can:
+cont[AI]n creates a sandboxed environment where an AI coding agent (OpenCode) can:
 
 - **Read and modify files** in designated project directories
 - **Run in isolation** from your host system
@@ -87,7 +95,7 @@ contAIn creates a sandboxed environment where an AI coding agent (OpenCode) can:
 │                                    ▼                                    │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                    PODMAN CONTAINER                              │   │
-│  │                    (contAIn)                                │   │
+│  │                    (contain)                                     │   │
 │  ├──────────────────────────────────────────────────────────────────┤   │
 │  │                                                                  │   │
 │  │  ┌────────────────────────────────────────────────────────────┐  │   │
@@ -122,7 +130,7 @@ contAIn creates a sandboxed environment where an AI coding agent (OpenCode) can:
 
 ## Prerequisites
 
-Before installing contAIn, ensure your system meets the following requirements:
+Before installing cont[AI]n, ensure your system meets the following requirements:
 
 ### Required
 
@@ -272,11 +280,11 @@ Upon completion, you'll see:
 =================================================================
   contain setup complete.
 
-   Container : podman ps | grep contAIn
+   Container : podman ps | grep contain
    TUI       : sudo contain-tui
    Watcher   : systemctl status contain-watcher
    Commits   : systemctl list-timers contain-commit
-   Logs      : journalctl -u contAIn -f
+   Logs      : journalctl -u contain -f
 =================================================================
 ```
 
@@ -312,17 +320,17 @@ sudo contain-tui --dir /workspace/Projects/myproject
 
 ```bash
 # View running container
-podman ps | grep contAIn
+podman ps | grep contain
 
 # Detailed container info
-podman inspect contAIn
+podman inspect contain
 ```
 
 #### Check Service Status
 
 ```bash
 # Container service (via systemd generator)
-systemctl status contAIn
+systemctl status contain
 
 # File watcher service
 systemctl status contain-watcher
@@ -335,7 +343,7 @@ systemctl list-timers contain-commit
 
 ```bash
 # Container logs (follow mode)
-journalctl -u contAIn -f
+journalctl -u contain -f
 
 # File watcher logs
 journalctl -u contain-watcher -f
@@ -400,7 +408,7 @@ sudo ./scripts/setup.sh
 
 ### Container Isolation
 
-contAIn uses rootful Podman to create a container that:
+cont[AI]n uses rootful Podman to create a container that:
 
 - **Maps UIDs 1:1** — The `agent` user inside the container has the same UID as the host `agent` user
 - **Uses host networking** — Simplifies access; server binds to localhost only
@@ -516,11 +524,11 @@ When locked, sensitive files get mode `600` (files) or `700` (directories), maki
 
 ### Systemd Services
 
-contAIn installs three systemd components:
+cont[AI]n installs three systemd components:
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| `contAIn.service` | Quadlet (generated) | Runs the container |
+| `contain.service` | Quadlet (generated) | Runs the container |
 | `contain-watcher.service` | Service | Monitors files, fixes permissions |
 | `contain-commit.timer` | Timer | Triggers periodic container commits |
 
@@ -605,8 +613,8 @@ OpenCode credentials are stored in `~/.local/share/opencode/auth.json` on the ho
 
 **Check the service status:**
 ```bash
-systemctl status contAIn
-journalctl -u contAIn -n 50
+systemctl status contain
+journalctl -u contain -n 50
 ```
 
 **Common causes:**
@@ -636,17 +644,17 @@ This script sets appropriate permissions while protecting sensitive files (`.env
 
 **Ensure the container is running:**
 ```bash
-podman ps | grep contAIn
+podman ps | grep contain
 ```
 
 **Check the server is listening:**
 ```bash
-podman exec contAIn ss -tlnp | grep 3000
+podman exec contain ss -tlnp | grep 3000
 ```
 
 **Try restarting the container:**
 ```bash
-sudo systemctl restart contAIn
+sudo systemctl restart contain
 ```
 
 ### File Watcher Not Working
@@ -669,7 +677,7 @@ sudo apt install inotify-tools  # Ubuntu
 
 **Verify credentials are mounted:**
 ```bash
-sudo podman exec contAIn ls -la /home/agent/.local/share/opencode/
+sudo podman exec contain ls -la /home/agent/.local/share/opencode/
 ```
 
 **Re-authenticate using the TUI:**
@@ -690,13 +698,13 @@ The container is limited to 2GB RAM. To increase:
 
 ## Uninstallation
 
-To completely remove contAIn:
+To completely remove cont[AI]n:
 
 ```bash
 # Stop and disable services
 sudo systemctl stop contain-watcher
 sudo systemctl stop contain-commit.timer
-sudo systemctl stop contAIn
+sudo systemctl stop contain
 sudo systemctl disable contain-watcher
 sudo systemctl disable contain-commit.timer
 
@@ -704,11 +712,11 @@ sudo systemctl disable contain-commit.timer
 sudo rm /etc/systemd/system/contain-watcher.service
 sudo rm /etc/systemd/system/contain-commit.service
 sudo rm /etc/systemd/system/contain-commit.timer
-sudo rm /etc/containers/systemd/contAIn.container
+sudo rm /etc/containers/systemd/contain.container
 sudo systemctl daemon-reload
 
 # Remove the container and image
-sudo podman rm -f contAIn
+sudo podman rm -f contain
 sudo podman rmi localhost/contain:latest
 
 # Remove helper scripts
@@ -780,7 +788,7 @@ shellcheck scripts/*.sh lib/*.sh container/*.sh
 # Test the full setup process
 sudo ./scripts/configure.sh
 sudo ./scripts/setup.sh
-podman exec -it contAIn opencode-tui
+podman exec -it contain opencode-tui
 ```
 
 ### Reporting Issues
@@ -789,7 +797,7 @@ When reporting bugs, please include:
 
 - Operating system and version
 - Podman version (`podman --version`)
-- Relevant log output (`journalctl -u contAIn`)
+- Relevant log output (`journalctl -u contain`)
 - Steps to reproduce
 
 ---
@@ -814,6 +822,6 @@ See [LICENSE](LICENSE) for the full license text.
 
 ## Acknowledgments
 
-- [OpenCode](https://opencode.ai) — The AI coding agent powering contAIn
+- [OpenCode](https://opencode.ai) — The AI coding agent powering cont[AI]n
 - [Podman](https://podman.io) — Daemonless container engine
 - [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) — Systemd integration for Podman

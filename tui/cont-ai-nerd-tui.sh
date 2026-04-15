@@ -9,8 +9,10 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-DG='\033[90m'
-PC='\033[38;5;223m'
+PG='\033[38;5;248m'
+SH='\033[38;5;244m'
+BO='\033[38;5;208m'
+WH='\033[38;5;255m'
 BOLD='\033[1m'
 RS='\033[0m'
 RESET='\033[0m'
@@ -82,16 +84,19 @@ get_opencode_status() {
 }
 
 draw_header() {
+  local logo_width=39
+  local pad=$(( (COLUMNS - logo_width) / 2 ))
+  [[ $pad -lt 0 ]] && pad=0
+  local sp
+  sp=$(printf '%*s' "$pad" '')
+
   move_cursor 1 1
-  echo -e "                    ${PC}████${RS}     ${PC}████${RS}"
-  echo -e "                    ${DG}█${PC}█${RS}  ${DG}███${RS} ${DG}███${PC}██${RS}"
-  echo -e "                    ${DG}█${PC}█${RS} ${DG}█${RS}   ${DG}█${RS} ${DG}█${RS} ${PC}██${RS}"
-  echo -e "     ${DG}███${RS}  ${DG}███${RS} ${DG}██████████${RS}   ${DG}█${RS} ${DG}█${RS} ${PC}█${DG}████${RS}"
-  echo -e "    ${DG}█${RS}    ${DG}█${RS}   ${DG}██${RS}   ${DG}█${RS} ${DG}█${PC}█${RS} ${DG}█████${RS} ${DG}█${RS} ${PC}█${DG}█${RS}   ${DG}█${RS}"
-  echo -e "    ${DG}█${RS}    ${DG}█${RS}   ${DG}██${RS}   ${DG}█${RS} ${DG}█${PC}█${RS} ${DG}█${RS}   ${DG}█${RS} ${DG}█${RS} ${PC}█${DG}█${RS}   ${DG}█${RS}"
-  echo -e "    ${DG}█${RS}    ${DG}█${RS}   ${DG}██${RS}   ${DG}█${RS} ${DG}█${PC}█${RS} ${DG}█${RS}   ${DG}█${RS} ${DG}█${RS} ${PC}█${DG}█${RS}   ${DG}█${RS}"
-  echo -e "     ${DG}███${RS}  ${DG}███${RS} ${DG}█${RS}   ${DG}█${RS} ${DG}████${RS}   ${DG}████${PC}█${DG}█${RS}   ${DG}█${RS}"
-  echo -e "                    ${PC}████${RS}     ${PC}████${RS}"
+  echo -e "${sp}                    ${BO}▄▄${RS}        ${BO}▄▄${RS}       "
+  echo -e "${sp}                ${SH}▒${PG}█${RS}  ${BO}█${SH}▒${WH}█▀▀▄${RS} ${WH}▀█▀${RS} ${BO}█${RS}       "
+  echo -e "${sp} ${SH}▒${PG}█▀▄${RS} ${PG}▄▀▀▄${SH}▒${PG}█▀▀▄${RS} ${PG}▀█▀${RS} ${BO}█${SH}▒${WH}█▄▄█${RS} ${SH}▒${WH}█${RS}  ${BO}█${SH}▒${PG}█▀▀▄${RS}  "
+  echo -e "${sp} ${SH}▒${PG}█${RS}  ${SH}▒${PG}█${RS} ${SH}▒${PG}█${SH}▒${PG}█${RS} ${SH}▒${PG}█${RS} ${SH}▒${PG}█${RS}  ${BO}█${SH}▒${WH}█${RS} ${SH}▒${WH}█${RS} ${SH}▒${WH}█${RS}  ${BO}█${SH}▒${PG}█${RS} ${SH}▒${PG}█${RS}  "
+  echo -e "${sp}  ${PG}▀▀▀${RS}  ${PG}▀▀${RS}  ${PG}▀${RS}  ${PG}▀${RS}  ${PG}▀${RS}  ${BO}█${RS} ${WH}▀${RS}  ${WH}▀${RS} ${WH}▀▀▀${RS} ${BO}█${RS} ${PG}▀${RS}  ${PG}▀${RS}  "
+  echo -e "${sp}                    ${BO}▀▀${RS}        ${BO}▀▀${RS}       "
   echo ""
 }
 
@@ -99,17 +104,17 @@ draw_left_panel() {
   local selected_as=$1
   local h=$((LINES - 5))
   
-  draw_box 1 11 "$((COLUMNS * 30 / 100))" "$h" "Agent Systems"
+  draw_box 1 8 "$((COLUMNS * 30 / 100))" "$h" "Agent Systems"
   
-  move_cursor 13 $((COLUMNS * 30 / 100 - 20))
+  move_cursor 10 $((COLUMNS * 30 / 100 - 20))
   echo -e "${CYAN}opencode${RESET}"
   
   if [[ "$selected_as" == "opencode" ]]; then
-    move_cursor 13 $((COLUMNS * 30 / 100 - 23))
+    move_cursor 10 $((COLUMNS * 30 / 100 - 23))
     echo -n "▶"
   fi
   
-  move_cursor 15 $((COLUMNS * 30 / 100 - 20))
+  move_cursor 12 $((COLUMNS * 30 / 100 - 20))
   echo "[enabled]"
 }
 
@@ -121,9 +126,9 @@ draw_right_panel() {
   local w=$((COLUMNS - COLUMNS * 30 / 100 - 4))
   local h=$((LINES - 5))
   
-  draw_box "$x" 11 "$((COLUMNS - 1))" "$h" "Actions"
+  draw_box "$x" 8 "$((COLUMNS - 1))" "$h" "Actions"
   
-  local y=13
+  local y=10
   move_cursor $y $((x + 2))
   echo -e "${BOLD}OpenCode Agent System${RESET}"
   
