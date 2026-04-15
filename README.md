@@ -1,11 +1,8 @@
 # cont[AI]n
 
-░░░░░░░░░░░░░░░░░░░░▄▄░░░░░░░░▄▄░░░░░░░  
-░░░░░░░░░░░░░░░░▒█░░█▒█▀▀▄░▀█▀░█░░░░░░░  
-░▒█▀▄░▄▀▀▄▒█▀▀▄░▀█▀░█▒█▄▄█░▒█░░█▒█▀▀▄░░  
-░▒█░░▒█░▒█▒█░▒█░▒█░░█▒█░▒█░▒█░░█▒█░▒█░░  
-░░▀▀▀░░▀▀░░▀░░▀░░▀░░█░▀░░▀░▀▀▀░█░▀░░▀░░  
-░░░░░░░░░░░░░░░░░░░░▀▀░░░░░░░░▀▀░░░░░░░  
+<p align="center">
+  <img src="docs/logo.svg" alt="cont[AI]n logo" width="400">
+</p>
 
 
 **Sandboxed AI coding agent powered by [OpenCode](https://opencode.ai), running in a rootful Podman container with file system isolation and automatic change tracking.**
