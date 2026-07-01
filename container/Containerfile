@@ -16,9 +16,11 @@ ARG AGENT_GROUP_NAME
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
+      fzf \
       git \
       inotify-tools \
       jq \
+      ripgrep \
       util-linux \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,19 +34,20 @@ RUN set -e; \
       arch="$(dpkg --print-architecture)"; \
     fi; \
     case "$arch" in \
-      amd64|x86_64) asset_arch="x86_64" ;; \
+      amd64|x86_64) asset_arch="x64" ;; \
       arm64|aarch64) asset_arch="arm64" ;; \
       *) echo "Unsupported OpenCode architecture: $arch" >&2; exit 1 ;; \
     esac; \
     if [ "$OPENCODE_VERSION" = "latest" ]; then \
-      url="https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-${asset_arch}.tar.gz"; \
+      url="https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-${asset_arch}.tar.gz"; \
     else \
-      url="https://github.com/opencode-ai/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz"; \
+      url="https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz"; \
     fi; \
     curl -fsSL "$url" -o /tmp/opencode.tar.gz && \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin && \
     chmod 755 /usr/local/bin/opencode && \
-    rm /tmp/opencode.tar.gz
+    rm /tmp/opencode.tar.gz && \
+    opencode serve --help | grep -- --hostname >/dev/null
 
 # Create agent user with a group whose GID matches the primary user's group
 # on the host. This allows the agent to read/write files via group permissions
