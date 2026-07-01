@@ -151,7 +151,11 @@ let
 
     podman_cmd="${pkgs.podman}/bin/podman"
     if [ "$(${pkgs.coreutils}/bin/id -u)" != "0" ]; then
-      podman_cmd="${pkgs.sudo}/bin/sudo ${pkgs.podman}/bin/podman"
+      if [ ! -x /run/wrappers/bin/sudo ]; then
+        echo "Error: /run/wrappers/bin/sudo is unavailable; run contain-tui as root or enable sudo." >&2
+        exit 1
+      fi
+      podman_cmd="/run/wrappers/bin/sudo ${pkgs.podman}/bin/podman"
     fi
 
     exec $podman_cmd exec -it --user agent \
