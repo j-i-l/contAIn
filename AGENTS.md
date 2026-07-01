@@ -59,7 +59,7 @@ contAIn/
 │   └── test-template-rendering.sh
 ├── tui/                # Terminal UI (TypeScript + bash fallback)
 │   ├── src/                 # TypeScript source (blessed library)
-│   ├── cont-ai-nerd-tui.sh # Pure bash TUI fallback
+│   ├── cont-ai-nerd-tui.sh # Legacy pure bash TUI fallback
 │   ├── config-schema.json   # JSON Schema for config.json
 │   ├── package.json
 │   └── tsconfig.json

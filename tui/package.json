@@ -1,7 +1,7 @@
 {
-  "name": "cont-ai-nerd-tui",
+  "name": "contain-tui",
   "version": "0.1.0",
-  "description": "Terminal User Interface for cont-ai-nerd",
+  "description": "Terminal User Interface for contAIn",
   "main": "src/index.ts",
   "type": "module",
   "scripts": {

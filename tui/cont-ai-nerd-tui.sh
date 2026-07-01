@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cont-ai-nerd-tui — Pure bash TUI for cont-ai-nerd
+# contain-tui - pure bash TUI for contAIn
 
 set -euo pipefail
 

@@ -29,7 +29,7 @@ In your `flake.nix`:
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     contain = {
-      url = "github:j-i-l/cont-AI-nerd";
+      url = "github:j-i-l/contAIn";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -179,7 +179,7 @@ sudo nixos-rebuild switch
 For contributing to contain, a development shell is provided:
 
 ```bash
-nix develop github:j-i-l/cont-AI-nerd
+nix develop github:j-i-l/contAIn
 
 # Or from a local checkout
 nix develop

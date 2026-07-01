@@ -197,8 +197,8 @@ See [nix/README.md](nix/README.md) for the declarative NixOS flake module.
 
 ```bash
 # Clone the repository
-git clone https://github.com/j-i-l/cont-AI-nerd.git
-cd cont-AI-nerd
+git clone https://github.com/j-i-l/contAIn.git
+cd contAIn
 
 # Configure (interactive)
 sudo ./scripts/configure.sh
@@ -213,8 +213,8 @@ sudo contain-tui
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/j-i-l/cont-AI-nerd.git
-cd cont-AI-nerd
+git clone https://github.com/j-i-l/contAIn.git
+cd contAIn
 ```
 
 ### Step 2: Configure
@@ -752,7 +752,7 @@ Contributions are welcome! Please follow these guidelines:
 ### Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/j-i-l/cont-AI-nerd.git`
+2. Clone your fork: `git clone https://github.com/j-i-l/contAIn.git`
 3. Create a branch: `git checkout -b feature/your-feature`
 
 ### Code Style

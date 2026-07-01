@@ -1,8 +1,8 @@
-# cont-AI-nerd Architecture
+# contAIn Architecture
 
 ## Overview
 
-cont-AI-nerd runs an AI coding agent (OpenCode) inside a sandboxed Podman
+contAIn runs an AI coding agent (OpenCode) inside a sandboxed Podman
 container. The system is designed as a **per-user application** — each user
 runs their own container instance with their own configuration.
 

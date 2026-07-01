@@ -9,7 +9,7 @@
     "agent_user": { "type": "string", "default": "agent" },
     "host": { "type": "string", "default": "127.0.0.1" },
     "port": { "type": "integer", "default": 3000 },
-    "install_dir": { "type": "string", "default": "/opt/cont-ai-nerd" },
+    "install_dir": { "type": "string", "default": "/opt/contAIn" },
     "agent_systems": {
       "type": "object",
       "additionalProperties": {
