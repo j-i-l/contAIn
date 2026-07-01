@@ -25,11 +25,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Download the opencode binary from GitHub releases.
 # Override OPENCODE_VERSION at build time to pin a specific release.
 ARG OPENCODE_VERSION=latest
+ARG OPENCODE_ARCH
 RUN set -e; \
+    arch="$OPENCODE_ARCH"; \
+    if [ -z "$arch" ]; then \
+      arch="$(dpkg --print-architecture)"; \
+    fi; \
+    case "$arch" in \
+      amd64|x86_64) asset_arch="x86_64" ;; \
+      arm64|aarch64) asset_arch="arm64" ;; \
+      *) echo "Unsupported OpenCode architecture: $arch" >&2; exit 1 ;; \
+    esac; \
     if [ "$OPENCODE_VERSION" = "latest" ]; then \
-      url="https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-x64.tar.gz"; \
+      url="https://github.com/opencode-ai/opencode/releases/latest/download/opencode-linux-${asset_arch}.tar.gz"; \
     else \
-      url="https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz"; \
+      url="https://github.com/opencode-ai/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz"; \
     fi; \
     curl -fsSL "$url" -o /tmp/opencode.tar.gz && \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin && \

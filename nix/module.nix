@@ -62,10 +62,11 @@ let
     primary_home  = cfg.primaryHome;
     project_paths = cfg.projectPaths;
     path_map      = containerPaths;
-    agent_user    = cfg.agent.user;
-    host          = cfg.server.host;
-    port          = cfg.server.port;
-    install_dir   = "${scripts}/lib/contain";
+      agent_user    = cfg.agent.user;
+      host          = cfg.server.host;
+      port          = cfg.server.port;
+      install_dir   = "${scripts}/lib/contain";
+      agent_systems = cfg.agentSystems;
   });
 
   # Generate opencode.json policy file using container-side paths
@@ -182,6 +183,12 @@ in {
         (subject to standard Unix group permissions).
       '';
       example     = [ "/home/alice/Projects" "/home/alice/work" ];
+    };
+
+    agentSystems = lib.mkOption {
+      type        = lib.types.attrsOf lib.types.attrs;
+      default     = {};
+      description = "Agent runtime declarations exposed in generated config.json.";
     };
 
     agent = {
@@ -303,7 +310,7 @@ in {
             "${cfg.primaryHome}/.local/share/opencode" \
             "${cfg.primaryHome}/.local/state/opencode"; do
             ${pkgs.findutils}/bin/find "$dir" -not -group $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) -exec ${pkgs.coreutils}/bin/chgrp $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) {} + 2>/dev/null || true
-            ${pkgs.findutils}/bin/find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
+            ${pkgs.findutils}/bin/find "$dir" -type f -not -name auth.json -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
             ${pkgs.findutils}/bin/find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
           done
         '';
@@ -337,6 +344,7 @@ in {
               --build-arg "AGENT_GID=$PRIMARY_GID" \
               --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
               --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
+              --build-arg "OPENCODE_ARCH=${pkgs.stdenv.hostPlatform.linuxArch}" \
               -t localhost/contain:latest \
               -f "$CONTAINER_DIR/Containerfile" \
               "$CONTAINER_DIR"
