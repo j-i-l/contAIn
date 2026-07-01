@@ -47,7 +47,7 @@ RUN set -e; \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin && \
     chmod 755 /usr/local/bin/opencode && \
     rm /tmp/opencode.tar.gz && \
-    opencode serve --help | grep -- --hostname >/dev/null
+    opencode serve --help 2>&1 | grep -- --hostname >/dev/null
 
 # Create agent user with a group whose GID matches the primary user's group
 # on the host. This allows the agent to read/write files via group permissions
