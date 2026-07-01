@@ -116,6 +116,7 @@ let
 
     # ---------- Environment ----------
     Environment=OPENCODE_CONFIG=/etc/contain/opencode.json
+    ${lib.optionalString (cfg.server.passwordEnvFile != null) "EnvironmentFile=${cfg.server.passwordEnvFile}"}
 
     # ---------- Networking ----------
     Network=host
@@ -148,7 +149,12 @@ let
       exit 1
     fi
 
-    exec ${pkgs.podman}/bin/podman exec -it --user agent \
+    podman_cmd="${pkgs.podman}/bin/podman"
+    if [ "$(${pkgs.coreutils}/bin/id -u)" != "0" ]; then
+      podman_cmd="${pkgs.sudo}/bin/sudo ${pkgs.podman}/bin/podman"
+    fi
+
+    exec $podman_cmd exec -it --user agent \
       -e HOME=/home/agent \
       -e XDG_CONFIG_HOME=/home/agent/.config \
       -e XDG_DATA_HOME=/home/agent/.local/share \
@@ -210,6 +216,16 @@ in {
         type        = lib.types.port;
         default     = 3000;
         description = "Port the OpenCode server listens on.";
+      };
+
+      passwordEnvFile = lib.mkOption {
+        type        = lib.types.nullOr lib.types.str;
+        default     = null;
+        description = ''
+          Optional environment file containing OPENCODE_SERVER_PASSWORD for the
+          OpenCode server. The file should be readable by root and not persisted
+          unless managed as an encrypted secret.
+        '';
       };
     };
 
