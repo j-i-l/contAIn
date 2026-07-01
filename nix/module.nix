@@ -339,7 +339,7 @@ in {
             PRIMARY_GROUP=$(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser} 2>/dev/null)
 
             echo "contain: building container image..."
-            ${pkgs.podman}/bin/podman build \
+            if ! ${pkgs.podman}/bin/podman build \
               --build-arg "AGENT_UID=$AGENT_UID" \
               --build-arg "AGENT_GID=$PRIMARY_GID" \
               --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
@@ -347,7 +347,10 @@ in {
               --build-arg "OPENCODE_ARCH=${pkgs.stdenv.hostPlatform.linuxArch}" \
               -t localhost/contain:latest \
               -f "$CONTAINER_DIR/Containerfile" \
-              "$CONTAINER_DIR"
+              "$CONTAINER_DIR"; then
+              echo "contain: image build failed." >&2
+              exit 1
+            fi
 
             echo "$CURRENT_HASH" > "$HASH_FILE"
             echo "contain: image built successfully."
