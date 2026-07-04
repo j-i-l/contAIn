@@ -4,7 +4,7 @@
 #          --build-arg AGENT_GID=<primary_gid> \
 #          --build-arg AGENT_GROUP_NAME=<primary_group> \
 #          -t contain:latest .
-FROM docker.io/library/ubuntu:24.04
+FROM ubuntu:24.04
 
 ARG AGENT_UID
 ARG AGENT_GID
@@ -53,7 +53,7 @@ RUN set -e; \
 # on the host. This allows the agent to read/write files via group permissions
 # without requiring a dedicated shared group.
 #
-# The base image (docker.io/library/ubuntu:24.04) already ships several well-known groups
+# The base image (ubuntu:24.04) already ships several well-known groups
 # (e.g. "users" GID 100, "nogroup" GID 65534). We handle four cases:
 #   1. Group name exists with the correct GID  -> nothing to do (skip groupadd)
 #   2. Group name exists with a different GID  -> fix GID via groupmod
