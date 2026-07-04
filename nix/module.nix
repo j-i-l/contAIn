@@ -337,50 +337,6 @@ in {
         deps = [ "users" ];
       };
 
-      # Build / rebuild the container image when needed.
-      contain-image = {
-        text = ''
-          CONTAINER_DIR="${../container}"
-          HASH_FILE="/var/lib/contain/containerfile.sha256"
-          mkdir -p /var/lib/contain
-
-          CURRENT_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1)
-          STORED_HASH=""
-          if [ -f "$HASH_FILE" ]; then
-            STORED_HASH=$(cat "$HASH_FILE")
-          fi
-
-          if [ "$CURRENT_HASH" != "$STORED_HASH" ] || \
-             ! ${pkgs.podman}/bin/podman image exists localhost/contain:latest 2>/dev/null; then
-
-            AGENT_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
-            # Use the primary user's GID and group name for the container.
-            PRIMARY_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.primaryUser} 2>/dev/null)
-            PRIMARY_GROUP=$(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser} 2>/dev/null)
-
-            echo "contain: building container image..."
-            if ! ${pkgs.podman}/bin/podman build \
-              --build-arg "AGENT_UID=$AGENT_UID" \
-              --build-arg "AGENT_GID=$PRIMARY_GID" \
-              --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
-              --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
-              --build-arg "OPENCODE_ARCH=${pkgs.stdenv.hostPlatform.linuxArch}" \
-              -t localhost/contain:latest \
-              -f "$CONTAINER_DIR/Containerfile" \
-              "$CONTAINER_DIR"; then
-              echo "contain: image build failed." >&2
-              exit 1
-            fi
-
-            echo "$CURRENT_HASH" > "$HASH_FILE"
-            echo "contain: image built successfully."
-          else
-            echo "contain: container image up to date."
-          fi
-        '';
-        deps = [ "contain-dirs" "users" ];
-      };
-
       # Set up project directory permissions.
       # Only ensures directories are group-traversable (g+x) so the agent
       # can navigate via the mapped GID. File permissions are left as-is.
@@ -394,6 +350,77 @@ in {
         '';
         deps = [ "contain-dirs" ];
       };
+    };
+
+    environment.etc."containers/policy.json" = {
+      mode = "0644";
+      text = builtins.toJSON {
+        default = [
+          { type = "insecureAcceptAnything"; }
+        ];
+      };
+    };
+
+    # Build / rebuild the container image after the installed system has booted.
+    # This intentionally does not run as a NixOS activation script: activation is
+    # also executed by nixos-install, whose chroot/installer environment often
+    # lacks a usable Podman runtime, container policy, tmp dirs, and networking.
+    systemd.services.contain-image = {
+      description = "Build contAIn container image";
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
+      before = [ "contain.service" ];
+      requiredBy = [ "contain.service" ];
+
+      path = [
+        pkgs.coreutils
+        pkgs.podman
+      ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        StateDirectory = "contain";
+      };
+
+      script = ''
+        set -euo pipefail
+
+        CONTAINER_DIR="${../container}"
+        HASH_FILE="/var/lib/contain/containerfile.sha256"
+        mkdir -p /var/lib/contain
+
+        CURRENT_HASH=$(sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1)
+        STORED_HASH=""
+        if [ -f "$HASH_FILE" ]; then
+          STORED_HASH=$(cat "$HASH_FILE")
+        fi
+
+        if [ "$CURRENT_HASH" != "$STORED_HASH" ] || \
+           ! podman image exists localhost/contain:latest 2>/dev/null; then
+
+          AGENT_UID=$(id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
+          # Use the primary user's GID and group name for the container.
+          PRIMARY_GID=$(id -g ${cfg.primaryUser} 2>/dev/null)
+          PRIMARY_GROUP=$(id -gn ${cfg.primaryUser} 2>/dev/null)
+
+          echo "contain: building container image..."
+          podman build \
+            --build-arg "AGENT_UID=$AGENT_UID" \
+            --build-arg "AGENT_GID=$PRIMARY_GID" \
+            --build-arg "AGENT_GROUP_NAME=$PRIMARY_GROUP" \
+            --build-arg "OPENCODE_VERSION=${cfg.container.opencodeVersion}" \
+            --build-arg "OPENCODE_ARCH=${pkgs.stdenv.hostPlatform.linuxArch}" \
+            -t localhost/contain:latest \
+            -f "$CONTAINER_DIR/Containerfile" \
+            "$CONTAINER_DIR"
+
+          echo "$CURRENT_HASH" > "$HASH_FILE"
+          echo "contain: image built successfully."
+        else
+          echo "contain: container image up to date."
+        fi
+      '';
     };
 
     # -- Watcher service --
