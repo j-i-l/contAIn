@@ -105,8 +105,8 @@ let
     # contain configuration (for opencode-tui wrapper)
     Volume=${cfg.primaryHome}/.config/contain/config.json:/etc/contain/config.json:ro
 
-    # OpenCode global configuration (read-only)
-    Volume=${cfg.primaryHome}/.config/opencode:/home/agent/.config/opencode:ro
+    # OpenCode global configuration (read-write; OpenCode manages helper files here)
+    Volume=${cfg.primaryHome}/.config/opencode:/home/agent/.config/opencode:rw
 
     # OpenCode data directory (read-write) — database, auth, logs, snapshots, etc.
     Volume=${cfg.primaryHome}/.local/share/opencode:/home/agent/.local/share/opencode:rw
