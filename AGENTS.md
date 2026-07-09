@@ -23,6 +23,19 @@
    user, you lose write access unless group write is set. Run
    `chmod g+w <file>` immediately after creating any new file.
 
+6. **Never hook user-level work into early boot.** The NixOS module must
+   not use `system.activationScripts` for anything that needs network,
+   Podman, or mutable state: with systemd stage-1, NixOS runs the full
+   activation inside the initrd chroot *before* switch-root, so a failing
+   script there bricks the host's boot (commit `9c24bf9` did exactly this
+   by moving the image build into activation — four unbootable
+   generations). The image build lives in
+   `systemd.services.contain-image`, ordered after
+   `network-online.target` and `requiredBy = contain.service`. Changing
+   *when* the image is built requires a written justification, an
+   evaluated stage-2 alternative, and a boot test on a host with
+   recovery access enabled.
+
 ---
 
 ## Project Overview
