@@ -99,13 +99,13 @@ let
     # Project directories (read-write, mounted under /workspace)
     ${volumeLines}
 
-    # contain generated policy (read-only)
-    Volume=${cfg.primaryHome}/.config/contain/opencode.json:/etc/contain/opencode.json:ro
-
     # contain configuration (for opencode-tui wrapper)
     Volume=${cfg.primaryHome}/.config/contain/config.json:/etc/contain/config.json:ro
 
-    # OpenCode global configuration (read-write; OpenCode manages helper files here)
+    # OpenCode global configuration (read-write; OpenCode persists provider
+    # registration and helper files here). The sandbox policy is merged into
+    # ~/.config/opencode/opencode.json by contain-opencode-config-seed, so no
+    # separate read-only OPENCODE_CONFIG mount is used.
     Volume=${cfg.primaryHome}/.config/opencode:/home/agent/.config/opencode:rw
 
     # OpenCode data directory (read-write) — database, auth, logs, snapshots, etc.
@@ -115,7 +115,6 @@ let
     Volume=${cfg.primaryHome}/.local/state/opencode:/home/agent/.local/state/opencode:rw
 
     # ---------- Environment ----------
-    Environment=OPENCODE_CONFIG=/etc/contain/opencode.json
     ${lib.optionalString (cfg.server.passwordEnvFile != null) "EnvironmentFile=${cfg.server.passwordEnvFile}"}
 
     # ---------- Networking ----------
@@ -260,6 +259,21 @@ in {
           /connect credentials to auth.json itself.
         '';
       };
+
+      configSeedFile = lib.mkOption {
+        type        = lib.types.nullOr lib.types.str;
+        default     = null;
+        description = ''
+          Optional JSON file merged into the primary user's OpenCode config
+          (`~/.config/opencode/opencode.json`) before the container starts.
+          Layering (later wins): existing runtime config < this seed <
+          contAIn's sandbox policy. The file is kept agent-writable (0660):
+          OpenCode persists runtime changes (e.g. provider registration from
+          /connect) into its config, so a read-only config breaks those
+          flows while the seed + policy re-assert declarative keys on every
+          service start.
+        '';
+      };
     };
 
     container = {
@@ -338,10 +352,9 @@ in {
           chown ${cfg.primaryUser}: "$CONFIG_DIR/config.json"
           chmod 640 "$CONFIG_DIR/config.json"
 
-          # opencode.json - external_directory policy
-          cp --no-preserve=mode ${opencodePolicy} "$CONFIG_DIR/opencode.json"
-          chown ${cfg.primaryUser}: "$CONFIG_DIR/opencode.json"
-          chmod 640 "$CONFIG_DIR/opencode.json"
+          # The opencode sandbox policy is no longer copied here: it is merged
+          # into ~/.config/opencode/opencode.json by the
+          # contain-opencode-config-seed systemd unit.
 
           # OpenCode config, data & state directories
           for dir in \
@@ -486,7 +499,11 @@ in {
           echo "contain: OpenCode auth seed is not readable: $seed" >&2
           exit 1
         fi
-        jq -e . "$seed" > /dev/null
+        if ! jq -e . "$seed" > /dev/null 2>&1; then
+          echo "contain: OpenCode auth seed is not valid strict JSON: $seed" >&2
+          echo 'contain: expected a complete object, e.g. {"provider":{"type":"api","key":"..."}}' >&2
+          exit 1
+        fi
 
         primary_group="$(id -gn ${cfg.primaryUser})"
         install -d -o ${cfg.primaryUser} -g "$primary_group" -m 0770 "$dir"
@@ -496,8 +513,63 @@ in {
           # Existing store survives; the seed is authoritative for its keys.
           jq -s '.[0] * .[1]' "$dest" "$seed" > "$tmp"
         else
-          cat "$seed" > "$tmp"
+          # Normalize so the deployed store is always canonical JSON.
+          jq . "$seed" > "$tmp"
         fi
+        chown ${cfg.primaryUser}:"$primary_group" "$tmp"
+        chmod 0660 "$tmp"
+        mv -f "$tmp" "$dest"
+      '';
+    };
+
+    # -- OpenCode config seed --
+    # Deploy the OpenCode config as an agent-writable file: OpenCode persists
+    # runtime changes (provider registration from /connect, helper files)
+    # into its config, so a read-only config breaks those flows. Layering,
+    # later wins: existing runtime config < host seed < sandbox policy. The
+    # policy is last so the declarative sandbox posture is re-asserted on
+    # every service start even if the agent edited the file at runtime.
+    systemd.services.contain-opencode-config-seed = {
+      description = "Seed contAIn OpenCode opencode.json";
+      before = [ "contain.service" ];
+      requiredBy = [ "contain.service" ];
+
+      path = [
+        pkgs.coreutils
+        pkgs.jq
+      ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+
+      script = ''
+        set -euo pipefail
+
+        policy=${opencodePolicy}
+        dir="${cfg.primaryHome}/.config/opencode"
+        dest="$dir/opencode.json"
+
+        primary_group="$(id -gn ${cfg.primaryUser})"
+        install -d -o ${cfg.primaryUser} -g "$primary_group" -m 0770 "$dir"
+
+        inputs=()
+        if [ -s "$dest" ] && jq -e . "$dest" > /dev/null 2>&1; then
+          inputs+=("$dest")
+        fi
+        ${lib.optionalString (cfg.opencode.configSeedFile != null) ''
+          seed=${lib.escapeShellArg cfg.opencode.configSeedFile}
+          if [ ! -r "$seed" ] || ! jq -e . "$seed" > /dev/null 2>&1; then
+            echo "contain: OpenCode config seed is not readable or not valid strict JSON: $seed" >&2
+            exit 1
+          fi
+          inputs+=("$seed")
+        ''}
+        inputs+=("$policy")
+
+        tmp="$(mktemp "$dir/.opencode.json.XXXXXX")"
+        jq -s 'reduce .[] as $x ({}; . * $x)' "''${inputs[@]}" > "$tmp"
         chown ${cfg.primaryUser}:"$primary_group" "$tmp"
         chmod 0660 "$tmp"
         mv -f "$tmp" "$dest"
