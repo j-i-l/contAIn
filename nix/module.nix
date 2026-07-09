@@ -207,6 +207,19 @@ in {
         default     = "agent";
         description = "Username for the container agent.";
       };
+
+      uid = lib.mkOption {
+        type        = lib.types.int;
+        default     = 473;
+        description = ''
+          Static UID (also used as the GID of the agent's bookkeeping group)
+          for the host-side agent user. Pinned so the UID baked into the
+          container image and the ownership of files the agent creates stay
+          stable across reboots and image rebuilds — dynamic system UIDs can
+          be reallocated. 473 sits well below the dynamic allocation region
+          that NixOS fills from 999 downward.
+        '';
+      };
     };
 
     server = {
@@ -229,6 +242,22 @@ in {
           Optional environment file containing OPENCODE_SERVER_PASSWORD for the
           OpenCode server. The file should be readable by root and not persisted
           unless managed as an encrypted secret.
+        '';
+      };
+    };
+
+    opencode = {
+      authSeedFile = lib.mkOption {
+        type        = lib.types.nullOr lib.types.str;
+        default     = null;
+        description = ''
+          Optional file merged into the primary user's OpenCode auth store
+          (`~/.local/share/opencode/auth.json`) before the container starts.
+          Intended for host-managed secrets (e.g. a sops-decrypted path); the
+          seed is authoritative for its own keys, while credentials added at
+          runtime (e.g. via the TUI /connect flow) are preserved. The store
+          is kept agent-writable (0660) because OpenCode >= 1.17 persists
+          /connect credentials to auth.json itself.
         '';
       };
     };
@@ -268,13 +297,14 @@ in {
     # GID is mapped to the primary user's GID.
     users.users.${cfg.agent.user} = {
       isSystemUser = true;
+      uid          = cfg.agent.uid;
       group        = cfg.agent.user;
       shell        = pkgs.shadow + "/bin/nologin";
       description  = "contain container agent";
     };
 
     # Auto-create the agent's own group on the host (NixOS requirement for system users).
-    users.groups.${cfg.agent.user} = {};
+    users.groups.${cfg.agent.user}.gid = cfg.agent.uid;
 
     # -- Packages available on the host --
     environment.systemPackages = [
@@ -325,12 +355,14 @@ in {
 
           # Fix ownership and permissions on existing data/state files.
           # This handles upgrades from older setups where files may have been
-          # created with wrong UID/GID or restrictive permissions.
+          # created with wrong UID/GID or restrictive permissions. auth.json
+          # is included on purpose: OpenCode >= 1.17 writes /connect
+          # credentials to it, so it must be agent- (group-) writable.
           for dir in \
             "${cfg.primaryHome}/.local/share/opencode" \
             "${cfg.primaryHome}/.local/state/opencode"; do
             ${pkgs.findutils}/bin/find "$dir" -not -group $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) -exec ${pkgs.coreutils}/bin/chgrp $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) {} + 2>/dev/null || true
-            ${pkgs.findutils}/bin/find "$dir" -type f -not -name auth.json -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
+            ${pkgs.findutils}/bin/find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
             ${pkgs.findutils}/bin/find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
           done
         '';
@@ -386,7 +418,15 @@ in {
         HASH_FILE="/var/lib/contain/containerfile.sha256"
         mkdir -p /var/lib/contain
 
-        CURRENT_HASH=$(sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1)
+        AGENT_UID=$(id -u ${cfg.agent.user} 2>/dev/null || echo ${toString cfg.agent.uid})
+        # Use the primary user's GID and group name for the container.
+        PRIMARY_GID=$(id -g ${cfg.primaryUser} 2>/dev/null)
+        PRIMARY_GROUP=$(id -gn ${cfg.primaryUser} 2>/dev/null)
+
+        # The image must be rebuilt when any of its build inputs change, not
+        # only the Containerfile: baked UID/GID, the OpenCode version pin and
+        # the architecture all shape the result.
+        CURRENT_HASH="$(sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1):$AGENT_UID:$PRIMARY_GID:${cfg.container.opencodeVersion}:${pkgs.stdenv.hostPlatform.linuxArch}"
         STORED_HASH=""
         if [ -f "$HASH_FILE" ]; then
           STORED_HASH=$(cat "$HASH_FILE")
@@ -394,11 +434,6 @@ in {
 
         if [ "$CURRENT_HASH" != "$STORED_HASH" ] || \
            ! podman image exists localhost/contain:latest 2>/dev/null; then
-
-          AGENT_UID=$(id -u ${cfg.agent.user} 2>/dev/null || echo 1001)
-          # Use the primary user's GID and group name for the container.
-          PRIMARY_GID=$(id -g ${cfg.primaryUser} 2>/dev/null)
-          PRIMARY_GROUP=$(id -gn ${cfg.primaryUser} 2>/dev/null)
 
           echo "contain: building container image..."
           podman build \
@@ -416,6 +451,56 @@ in {
         else
           echo "contain: container image up to date."
         fi
+      '';
+    };
+
+    # -- OpenCode auth seed --
+    # Merge a host-provided credential seed into the OpenCode auth store.
+    # OpenCode >= 1.17 persists /connect credentials to auth.json itself, so
+    # the file must stay agent-writable (0660) and runtime-added providers
+    # must survive re-runs: the seed wins for its own keys, everything else
+    # is preserved.
+    systemd.services.contain-opencode-auth-seed = lib.mkIf (cfg.opencode.authSeedFile != null) {
+      description = "Seed contAIn OpenCode auth.json";
+      before = [ "contain.service" ];
+      requiredBy = [ "contain.service" ];
+
+      path = [
+        pkgs.coreutils
+        pkgs.jq
+      ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+
+      script = ''
+        set -euo pipefail
+
+        seed=${lib.escapeShellArg cfg.opencode.authSeedFile}
+        dir="${cfg.primaryHome}/.local/share/opencode"
+        dest="$dir/auth.json"
+
+        if [ ! -r "$seed" ]; then
+          echo "contain: OpenCode auth seed is not readable: $seed" >&2
+          exit 1
+        fi
+        jq -e . "$seed" > /dev/null
+
+        primary_group="$(id -gn ${cfg.primaryUser})"
+        install -d -o ${cfg.primaryUser} -g "$primary_group" -m 0770 "$dir"
+
+        tmp="$(mktemp "$dir/.auth.json.XXXXXX")"
+        if [ -s "$dest" ] && jq -e . "$dest" > /dev/null 2>&1; then
+          # Existing store survives; the seed is authoritative for its keys.
+          jq -s '.[0] * .[1]' "$dest" "$seed" > "$tmp"
+        else
+          cat "$seed" > "$tmp"
+        fi
+        chown ${cfg.primaryUser}:"$primary_group" "$tmp"
+        chmod 0660 "$tmp"
+        mv -f "$tmp" "$dest"
       '';
     };
 
