@@ -58,59 +58,13 @@ warn()  { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 error() { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 die()   { error "$@"; exit 1; }
 
-# ── Path mapping functions ───────────────────────────────────────────────
-# These compute container-side paths under /workspace by stripping the
-# common parent directory from all project paths.
-#
-# Example: /home/alice/Projects, /home/alice/work
-#   → common parent: /home/alice
-#   → container paths: /workspace/Projects, /workspace/work
-
-# find_common_parent: Find the longest common directory prefix of all paths.
-# Usage: find_common_parent "/path/a" "/path/b" ...
-# Output: The common parent directory (e.g., "/path")
-find_common_parent() {
-  local -a paths=("$@")
-  [[ ${#paths[@]} -eq 0 ]] && return 1
-  
-  # Start with the first path's directory components
-  local common="${paths[0]}"
-  
-  for path in "${paths[@]:1}"; do
-    # Reduce common prefix until it matches the current path
-    while [[ "${path}" != "${common}"* ]]; do
-      # Remove the last component from common
-      common="${common%/*}"
-      [[ -z "$common" ]] && common="/"
-      [[ "$common" == "/" ]] && break
-    done
-  done
-  
-  echo "$common"
-}
-
-# get_container_path: Convert a host path to its container-side equivalent.
-# Usage: get_container_path "/home/alice/Projects" "/home/alice"
-# Output: /workspace/Projects
-get_container_path() {
-  local host_path="$1"
-  local common_parent="$2"
-  
-  if [[ "$common_parent" == "/" ]]; then
-    # No common parent other than root — use full path under /workspace
-    echo "/workspace${host_path}"
-  elif [[ "$host_path" == "$common_parent" ]]; then
-    # Single path case: host_path equals common_parent, use basename
-    # e.g., /home/alice/Projects → /workspace/Projects
-    echo "/workspace/$(basename "$host_path")"
-  else
-    # Strip the common parent to get the unique suffix
-    local suffix="${host_path#"$common_parent"}"
-    # Ensure suffix starts with /
-    [[ "$suffix" != /* ]] && suffix="/${suffix}"
-    echo "/workspace${suffix}"
-  fi
-}
+# ── Path identity ────────────────────────────────────────────────────────
+# Project directories are bind-mounted at their IDENTICAL host paths inside
+# the container (identity mounts). OpenCode records each session's
+# `directory` and scopes session listing by it, so host-side clients (the
+# neovim plugin) and the attached TUI must agree on the exact path strings.
+# Podman creates the mountpoint skeleton (root-owned) inside the container;
+# nothing outside the mounted paths is exposed.
 
 # ── Root check ───────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -227,13 +181,6 @@ CONTAINERD_CONFIG="${PRIMARY_HOME}/.config/contain"
 PRIMARY_GROUP=$(id -gn "$PRIMARY_USER")
 PRIMARY_GID=$(id -g "$PRIMARY_USER")
 
-# Compute common parent and container-side paths for /workspace mounts
-COMMON_PARENT=$(find_common_parent "${PROJECT_PATHS[@]}")
-declare -A CONTAINER_PATHS
-for p in "${PROJECT_PATHS[@]}"; do
-  CONTAINER_PATHS["$p"]=$(get_container_path "$p" "$COMMON_PARENT")
-done
-
 echo ""
 echo "================================================================="
 echo "  contain — Podman Setup"
@@ -242,36 +189,25 @@ echo "  Primary user  : ${PRIMARY_USER} (home: ${PRIMARY_HOME})"
 echo "  Primary group : ${PRIMARY_GROUP} (GID: ${PRIMARY_GID})"
 echo "  Agent user    : ${AGENT_USER}"
 echo "  Project paths : ${PROJECT_PATHS[*]}"
-echo "  Common parent : ${COMMON_PARENT}"
 echo "  Config dir    : ${CONTAINERD_CONFIG}"
 echo "  Install dir   : ${INSTALL_DIR}"
 echo "  Listen        : ${HOST}:${PORT}"
 echo ""
-echo "  Container mount mapping:"
-for p in "${PROJECT_PATHS[@]}"; do
-  echo "    ${p} → ${CONTAINER_PATHS[$p]}"
-done
+echo "  Project paths are identity-mounted (same path inside the container)."
 echo "================================================================="
 echo ""
 
-# ── Update config.json with path_map ─────────────────────────────────────
-# The entrypoint wrapper reads path_map to create symlinks from host paths
-# to their /workspace equivalents inside the container.
-info "Adding path_map to config.json..."
-PATH_MAP_JSON="{"
-first=true
-for p in "${PROJECT_PATHS[@]}"; do
-  $first || PATH_MAP_JSON+=","
-  first=false
-  PATH_MAP_JSON+="$(printf '"%s":"%s"' "$p" "${CONTAINER_PATHS[$p]}")"
-done
-PATH_MAP_JSON+="}"
-
-jq --argjson pm "$PATH_MAP_JSON" '.path_map = $pm' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
-mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-chown "${PRIMARY_USER}:" "$CONFIG_FILE"
-chmod 640 "$CONFIG_FILE"
-echo "    path_map: ${PATH_MAP_JSON}"
+# ── Drop the legacy path_map from config.json ────────────────────────────
+# Older releases remapped project paths under /workspace and recorded the
+# mapping as path_map for the entrypoint's symlink bridge. Identity mounts
+# make both obsolete; remove the stale key so nothing consumes it.
+if jq -e '.path_map' "$CONFIG_FILE" > /dev/null 2>&1; then
+  info "Removing legacy path_map from config.json..."
+  jq 'del(.path_map)' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+  mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+  chown "${PRIMARY_USER}:" "$CONFIG_FILE"
+  chmod 640 "$CONFIG_FILE"
+fi
 
 # ── 1. Identity provisioning ─────────────────────────────────────────────
 echo "==> [1/8] Provisioning identity..."
@@ -313,7 +249,8 @@ chown "${PRIMARY_USER}:" "${CONTAINERD_CONFIG}"
 chmod 750 "${CONTAINERD_CONFIG}"
 
 # Generate external_directory policy — allows the agent to access exactly
-# the paths that are bind-mounted into the container (using container-side paths).
+# the paths that are bind-mounted into the container (identity mounts, so
+# host paths are the canonical container paths too).
 POLICY_FILE="${CONTAINERD_CONFIG}/opencode.json"
 {
   echo '{'
@@ -323,8 +260,7 @@ POLICY_FILE="${CONTAINERD_CONFIG}/opencode.json"
   echo '    "external_directory": {'
   for i in "${!PROJECT_PATHS[@]}"; do
     comma=$([[ $i -lt $((${#PROJECT_PATHS[@]} - 1)) ]] && echo "," || echo "")
-    container_path="${CONTAINER_PATHS[${PROJECT_PATHS[$i]}]}"
-    echo "      \"${container_path}/**\": \"allow\"${comma}"
+    echo "      \"${PROJECT_PATHS[$i]}/**\": \"allow\"${comma}"
   done
   echo '    }'
   echo '  }'
@@ -398,12 +334,12 @@ echo "==> [7/8] Installing systemd units..."
 # --- Quadlet ---
 mkdir -p "${QUADLET_DIR}"
 
-# Build the Volume= lines for project paths using /workspace container paths.
+# Build the Volume= lines for project paths (identity mounts).
 HOST_PATHS=""
 CONT_PATHS=""
 for p in "${PROJECT_PATHS[@]}"; do
   HOST_PATHS+="${p}"$'\n'
-  CONT_PATHS+="${CONTAINER_PATHS[$p]}"$'\n'
+  CONT_PATHS+="${p}"$'\n'
 done
 HOST_PATHS="${HOST_PATHS%$'\n'}"
 CONT_PATHS="${CONT_PATHS%$'\n'}"

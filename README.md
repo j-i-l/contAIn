@@ -128,7 +128,7 @@ cont[AI]n creates a sandboxed environment where an AI coding agent (OpenCode) ca
 │  │    - ~/.config/contain/config.json → /etc/contain/ (ro)          │   │
 │  │                                                                  │   │
 │  │  Mounts (paths are examples, configured via config.json):        │   │
-│  │    - /home/alice/Projects → /workspace/Projects (rw)             │   │
+│  │    - /home/alice/Projects → /home/alice/Projects (rw, identity)  │   │
 │  │                                                                  │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
@@ -136,9 +136,10 @@ cont[AI]n creates a sandboxed environment where an AI coding agent (OpenCode) ca
 ```
 
 **Note:** In the diagram above, `~` refers to the primary user's home directory
-(e.g., `/home/alice` for user `alice`). Project directories are mounted under
-`/workspace` inside the container, with the common parent directory stripped
-(e.g., `/home/alice/Projects` becomes `/workspace/Projects`).
+(e.g., `/home/alice` for user `alice`). Project directories are identity-mounted
+at their exact host paths inside the container, so all OpenCode clients (host
+editor plugins, the attached TUI, the server) agree on the same directory
+strings — which is what OpenCode scopes session listing by.
 
 ---
 
@@ -324,8 +325,10 @@ On first use, run `/connect` in the TUI to authenticate with your preferred LLM 
 # Start with a specific session
 sudo contain-tui --session <session-id>
 
-# Start in a specific directory (container path)
-sudo contain-tui --dir /workspace/Projects/myproject
+# Pick the project directory (a configured project path or a subdirectory).
+# With one configured project path it is used automatically; with several
+# and no --dir, an interactive menu is shown.
+sudo contain-tui --dir /home/alice/Projects/myproject
 ```
 
 ### Monitoring

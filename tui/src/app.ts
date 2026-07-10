@@ -314,8 +314,13 @@ export class App {
 
       // Launch with full stdio inheritance so the interactive TUI gets
       // proper PTY, raw mode, mouse events, and terminal size signals.
+      // The workdir decides OpenCode's session `directory` identity;
+      // project paths are identity-mounted, so use the first configured
+      // one (use contain-tui --dir on the host for another project).
+      const workdir = this.config?.project_paths?.[0];
       const child = spawn('sudo', [
         'podman', 'exec', '-it', '--user', 'agent',
+        ...(workdir ? ['--workdir', workdir] : []),
         '-e', 'HOME=/home/agent',
         '-e', 'XDG_CONFIG_HOME=/home/agent/.config',
         '-e', 'XDG_DATA_HOME=/home/agent/.local/share',

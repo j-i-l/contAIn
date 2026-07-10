@@ -87,9 +87,12 @@ This will:
 6. Start the watcher service and commit timer
 7. Set project directory permissions
 
-**Note:** Project directories are mounted under `/workspace` inside the container.
-The common parent directory is stripped (e.g., `/home/alice/Projects` becomes
-`/workspace/Projects`). This avoids issues with home directory traversal.
+**Note:** Project directories are identity-mounted at their exact host paths
+inside the container (e.g., `/home/alice/Projects` stays
+`/home/alice/Projects`). This keeps OpenCode's session `directory` identity
+consistent between host-side clients and the containerized server. Podman
+creates the intermediate mountpoint skeleton (root-owned); nothing outside
+the mounted paths is exposed.
 
 ---
 

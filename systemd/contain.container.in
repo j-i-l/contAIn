@@ -13,12 +13,14 @@ After=network-online.target
 ContainerName=contain
 Image=localhost/contain:latest
 
-# The entrypoint runs as root to create host-path symlinks,
+# The entrypoint runs as root for volume housekeeping,
 # then drops to the agent user via setpriv.
 
 # ---------- Bind mounts ----------
 
-# Project directories (read-write, SELinux relabel)
+# Project directories (read-write, identity mounts: host path == container
+# path, SELinux relabel). Identity mounts keep OpenCode session `directory`
+# identities canonical across host clients and the attached TUI.
 @@VOLUME_LINES@@
 
 # contain generated policy (external_directory allow-list, read-only)

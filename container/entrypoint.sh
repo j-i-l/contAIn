@@ -3,28 +3,19 @@
 # =========================================================================
 # This script runs as root at container startup. It:
 #
-#   1. Reads path_map from /etc/contain/config.json
-#   2. Creates symlinks from host-side paths to their /workspace equivalents
-#      so that OpenCode clients can use host-side paths as working directories
-#   3. Ensures required subdirectories exist inside bind-mounted volumes
-#   4. Drops privileges to the agent user
-#   5. Execs opencode with the original arguments
+#   1. Ensures required subdirectories exist inside bind-mounted volumes
+#   2. Drops privileges to the agent user
+#   3. Execs opencode with the original arguments
 #
-# Why symlinks?
-#   OpenCode clients (neovim plugin, TUI) connect with the host-side project
-#   path (e.g., /home/alice/projects/foo). OpenCode uses this as the cwd for
-#   shell commands. Without symlinks, this path doesn't exist inside the
-#   container, causing posix_spawn to fail with ENOENT.
-#
-#   The symlinks create a minimal directory structure inside the container
-#   (e.g., /home/alice/projects -> /workspace/projects) so that host-side
-#   paths resolve correctly.
-#
-# Security:
-#   - Intermediate directories (e.g., /home/alice) are owned by root:root
-#     with mode 755. They contain nothing except the symlinks.
-#   - The agent user can traverse these directories but cannot create files
-#     or read anything that isn't part of the /workspace mount.
+# Path identity:
+#   Project directories are bind-mounted at their IDENTICAL host paths
+#   (identity mounts, e.g. /home/alice/Projects -> /home/alice/Projects).
+#   OpenCode clients (neovim plugin, TUI) therefore see exactly the same
+#   directory strings inside and outside the container, which keeps
+#   directory-scoped session listing stable. Podman creates the mountpoint
+#   skeleton (root-owned, mode 755) automatically; the intermediate
+#   directories contain nothing besides the mountpoints, so the agent can
+#   traverse them but cannot read or create anything outside the mounts.
 #
 # Umask:
 #   Sets umask 002 so agent-created files are 664 (group-writable) and
@@ -33,24 +24,6 @@
 #
 # =========================================================================
 set -eu
-
-CONFIG="/etc/contain/config.json"
-
-# ── Create symlinks from host paths to /workspace paths ──────────────────
-# Only attempt symlink creation if running as root (normal startup).
-# When invoked with --user=agent (e.g., debug/TUI), skip this step.
-if [ "$(id -u)" = "0" ] && [ -f "$CONFIG" ]; then
-  # Extract path_map entries: { "/home/alice/Projects": "/workspace/Projects", ... }
-  # For each pair, mkdir -p the parent dir and create a symlink.
-  jq -r '.path_map // {} | to_entries[] | "\(.key)\t\(.value)"' "$CONFIG" | \
-  while IFS="$(printf '\t')" read -r host_path container_path; do
-    [ -z "$host_path" ] && continue
-    parent="$(dirname "$host_path")"
-    mkdir -p "$parent"
-    # Create or update the symlink
-    ln -sfn "$container_path" "$host_path"
-  done
-fi
 
 # ── Ensure required subdirectories exist inside bind-mounted volumes ──────
 # The host bind mount over ~/.local/share/opencode hides directories created

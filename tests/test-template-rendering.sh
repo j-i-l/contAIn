@@ -93,7 +93,7 @@ echo "=== Container template: single project path ==="
 
 VOLUME_LINES_1=$(build_volume_lines \
   "/home/alice/Projects" \
-  "/workspace/Projects")
+  "/home/alice/Projects")
 
 RENDERED_1=$(render_container_unit \
   "${SYSTEMD_DIR}/contain.container.in" \
@@ -105,7 +105,7 @@ RENDERED_1=$(render_container_unit \
 
 assert_no_unreplaced_placeholders "$RENDERED_1" "single-path"
 assert_no_directives_before_first_section "$RENDERED_1" "single-path"
-assert_line_count "$RENDERED_1" "Volume=/home/alice/Projects:/workspace/Projects:rw,Z" 1 \
+assert_line_count "$RENDERED_1" "Volume=/home/alice/Projects:/home/alice/Projects:rw,Z" 1 \
   "single-path: project volume present"
 assert_contains "$RENDERED_1" "Volume=/home/alice/.config/contain/opencode.json:/etc/contain/opencode.json:ro" \
   "single-path: policy volume resolved"
@@ -123,9 +123,9 @@ VOLUME_LINES_3=$(build_volume_lines \
   "/home/bob/code/frontend
 /home/bob/code/backend
 /home/bob/code/shared" \
-  "/workspace/frontend
-/workspace/backend
-/workspace/shared")
+  "/home/bob/code/frontend
+/home/bob/code/backend
+/home/bob/code/shared")
 
 RENDERED_3=$(render_container_unit \
   "${SYSTEMD_DIR}/contain.container.in" \
@@ -139,11 +139,11 @@ assert_no_unreplaced_placeholders "$RENDERED_3" "multi-path"
 assert_no_directives_before_first_section "$RENDERED_3" "multi-path"
 assert_line_count "$RENDERED_3" "Volume=/home/bob/code/" 3 \
   "multi-path: all 3 project volumes present"
-assert_contains "$RENDERED_3" "Volume=/home/bob/code/frontend:/workspace/frontend:rw,Z" \
+assert_contains "$RENDERED_3" "Volume=/home/bob/code/frontend:/home/bob/code/frontend:rw,Z" \
   "multi-path: frontend volume correct"
-assert_contains "$RENDERED_3" "Volume=/home/bob/code/backend:/workspace/backend:rw,Z" \
+assert_contains "$RENDERED_3" "Volume=/home/bob/code/backend:/home/bob/code/backend:rw,Z" \
   "multi-path: backend volume correct"
-assert_contains "$RENDERED_3" "Volume=/home/bob/code/shared:/workspace/shared:rw,Z" \
+assert_contains "$RENDERED_3" "Volume=/home/bob/code/shared:/home/bob/code/shared:rw,Z" \
   "multi-path: shared volume correct"
 assert_contains "$RENDERED_3" "Exec=serve --hostname 0.0.0.0 --port 8080" \
   "multi-path: custom host/port resolved"
@@ -155,7 +155,7 @@ echo "=== Container template: path with spaces ==="
 
 VOLUME_LINES_SPACE=$(build_volume_lines \
   "/home/user/My Projects/app" \
-  "/workspace/My Projects/app")
+  "/home/user/My Projects/app")
 
 RENDERED_SPACE=$(render_container_unit \
   "${SYSTEMD_DIR}/contain.container.in" \
@@ -167,7 +167,7 @@ RENDERED_SPACE=$(render_container_unit \
 
 assert_no_unreplaced_placeholders "$RENDERED_SPACE" "spaces-in-path"
 assert_no_directives_before_first_section "$RENDERED_SPACE" "spaces-in-path"
-assert_contains "$RENDERED_SPACE" "Volume=/home/user/My Projects/app:/workspace/My Projects/app:rw,Z" \
+assert_contains "$RENDERED_SPACE" "Volume=/home/user/My Projects/app:/home/user/My Projects/app:rw,Z" \
   "spaces-in-path: volume line preserved spaces"
 
 # ── Test: Watcher service template ──────────────────────────────────────
@@ -211,11 +211,11 @@ echo "=== build_volume_lines helper ==="
 VL_RESULT=$(build_volume_lines \
   "/a/b
 /c/d" \
-  "/workspace/b
-/workspace/d")
+  "/a/b
+/c/d")
 
-EXPECTED_VL="Volume=/a/b:/workspace/b:rw,Z
-Volume=/c/d:/workspace/d:rw,Z"
+EXPECTED_VL="Volume=/a/b:/a/b:rw,Z
+Volume=/c/d:/c/d:rw,Z"
 
 if [[ "$VL_RESULT" == "$EXPECTED_VL" ]]; then
   pass "build_volume_lines: correct output for 2 paths"

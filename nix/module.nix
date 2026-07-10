@@ -5,63 +5,22 @@ let
 
   scripts = pkgs.callPackage ./scripts.nix {};
 
-  # Compute the common parent directory of all project paths.
-  # This is used to strip the prefix and mount under /workspace.
-  # Example: ["/home/alice/Projects" "/home/alice/work"] -> "/home/alice"
-  findCommonParent = paths:
-    let
-      # Split each path into components
-      splitPath = p: lib.filter (s: s != "") (lib.splitString "/" p);
-      allComponents = map splitPath paths;
-      
-      # Find common prefix of all component lists
-      minLen = lib.foldl' (acc: cs: lib.min acc (lib.length cs)) 
-                          (lib.length (lib.head allComponents)) 
-                          allComponents;
-      
-      # Check if all paths have the same component at index i
-      allSameAt = i: 
-        let comp = lib.elemAt (lib.head allComponents) i;
-        in lib.all (cs: lib.elemAt cs i == comp) allComponents;
-      
-      # Find how many components are common
-      commonCount = lib.foldl' 
-        (acc: i: if acc == i && allSameAt i then i + 1 else acc) 
-        0 
-        (lib.range 0 (minLen - 1));
-      
-      # Build the common parent path
-      commonComponents = lib.take commonCount (lib.head allComponents);
-    in 
-      if lib.length paths == 0 then "/"
-      else if lib.length paths == 1 then lib.head paths
-      else "/" + lib.concatStringsSep "/" commonComponents;
-
-  commonParent = findCommonParent cfg.projectPaths;
-
-  # Convert a host path to its container-side equivalent under /workspace
-  getContainerPath = hostPath:
-    if hostPath == commonParent then
-      # Single path case: hostPath equals commonParent, use basename
-      # e.g., /home/alice/Projects -> /workspace/Projects
-      "/workspace/${builtins.baseNameOf hostPath}"
-    else
-      let
-        suffix = lib.removePrefix commonParent hostPath;
-        cleanSuffix = if lib.hasPrefix "/" suffix then suffix else "/" + suffix;
-      in "/workspace" + cleanSuffix;
-
-  # Map of host paths to container paths
-  containerPaths = lib.listToAttrs (map (p: 
-    lib.nameValuePair p (getContainerPath p)
-  ) cfg.projectPaths);
+  # Project directories are mounted at their IDENTICAL host paths inside the
+  # container (identity mounts). This keeps OpenCode's session `directory`
+  # identity canonical: sessions created via the host-side neovim plugin, the
+  # attached TUI and the server all record and query the same host-path
+  # strings, so directory-scoped session listing survives container
+  # recreation and reboots. Podman auto-creates the mountpoint skeleton
+  # (root-owned) inside the container; nothing outside the mounted paths is
+  # exposed. The former /workspace remapping (+ entrypoint symlink bridge) is
+  # gone — it produced divergent directory identities (/workspace/... vs
+  # /home/...) that stranded sessions.
 
   # Generate config.json from module options
   configJson = pkgs.writeText "contain-config.json" (builtins.toJSON {
     primary_user  = cfg.primaryUser;
     primary_home  = cfg.primaryHome;
     project_paths = cfg.projectPaths;
-    path_map      = containerPaths;
       agent_user    = cfg.agent.user;
       host          = cfg.server.host;
       port          = cfg.server.port;
@@ -69,17 +28,18 @@ let
       agent_systems = cfg.agentSystems;
   });
 
-  # Generate opencode.json policy file using container-side paths
+  # Generate opencode.json policy file. Host paths are canonical inside the
+  # container too (identity mounts), so the allow-list uses them directly.
   opencodePolicy = pkgs.writeText "contain-opencode.json" (builtins.toJSON {
     "$schema" = "https://opencode.ai/config.json";
     permission.external_directory =
-      lib.listToAttrs (map (p: lib.nameValuePair "${containerPaths.${p}}/**" "allow") cfg.projectPaths);
+      lib.listToAttrs (map (p: lib.nameValuePair "${p}/**" "allow") cfg.projectPaths);
   });
 
   # Render the Quadlet .container file with Nix-substituted values.
-  # Volume lines map host paths to /workspace container paths.
+  # Identity mounts: host path == container path.
   volumeLines = lib.concatMapStringsSep "\n" (p:
-    "Volume=${p}:${containerPaths.${p}}:rw"
+    "Volume=${p}:${p}:rw"
   ) cfg.projectPaths;
 
   containerFile = pkgs.writeText "contain.container" ''
@@ -92,11 +52,11 @@ let
     ContainerName=contain
     Image=localhost/contain:latest
 
-    # The entrypoint runs as root to create host-path symlinks,
+    # The entrypoint runs as root for volume housekeeping,
     # then drops to the agent user via setpriv.
 
     # ---------- Bind mounts ----------
-    # Project directories (read-write, mounted under /workspace)
+    # Project directories (read-write, identity mounts: host path == container path)
     ${volumeLines}
 
     # contain configuration (for opencode-tui wrapper)
@@ -139,8 +99,76 @@ let
   # container's read-write bind mounts — no separate container needed.
   # Runs as the agent user (not root) so files the TUI writes are owned
   # by agent:primary_group and group-writable (umask 002).
+  #
+  # The TUI's working directory decides the OpenCode session `directory`
+  # identity, so it must be one of the (identity-mounted) project paths:
+  #   --dir <path>   explicit choice (must be inside a project path)
+  #   (omitted)      single project path -> used directly;
+  #                  multiple            -> interactive numbered menu.
   tuiScript = pkgs.writeShellScriptBin "contain-tui" ''
     set -euo pipefail
+
+    project_paths=(${lib.concatMapStringsSep " " lib.escapeShellArg cfg.projectPaths})
+
+    usage() {
+      echo "Usage: contain-tui [--dir <project-path>] [opencode-tui args...]" >&2
+      echo "Project paths:" >&2
+      printf '  %s\n' "''${project_paths[@]}" >&2
+    }
+
+    workdir=""
+    args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dir)
+          [ $# -ge 2 ] || { usage; exit 1; }
+          workdir="$2"
+          shift 2
+          ;;
+        --help|-h)
+          usage
+          exit 0
+          ;;
+        *)
+          args+=("$1")
+          shift
+          ;;
+      esac
+    done
+
+    if [ -n "$workdir" ]; then
+      # Accept a project path or any directory beneath one.
+      ok=""
+      for p in "''${project_paths[@]}"; do
+        case "$workdir" in
+          "$p"|"$p"/*) ok=1; break ;;
+        esac
+      done
+      if [ -z "$ok" ]; then
+        echo "Error: --dir must be a configured project path (or a subdirectory of one)." >&2
+        usage
+        exit 1
+      fi
+    elif [ "''${#project_paths[@]}" -eq 1 ]; then
+      workdir="''${project_paths[0]}"
+    else
+      echo "Select project directory:" >&2
+      i=1
+      for p in "''${project_paths[@]}"; do
+        echo "  $i) $p" >&2
+        i=$((i + 1))
+      done
+      printf 'Choice [1-%d]: ' "''${#project_paths[@]}" >&2
+      read -r choice
+      case "$choice" in
+        ''''|*[!0-9]*) echo "Invalid choice." >&2; exit 1 ;;
+      esac
+      if [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#project_paths[@]}" ]; then
+        echo "Invalid choice." >&2
+        exit 1
+      fi
+      workdir="''${project_paths[$((choice - 1))]}"
+    fi
 
     if ! systemctl is-active --quiet contain.service 2>/dev/null; then
       echo "Error: contain container is not running." >&2
@@ -158,11 +186,12 @@ let
     fi
 
     exec $podman_cmd exec -it --user agent \
+      --workdir "$workdir" \
       -e HOME=/home/agent \
       -e XDG_CONFIG_HOME=/home/agent/.config \
       -e XDG_DATA_HOME=/home/agent/.local/share \
       -e XDG_STATE_HOME=/home/agent/.local/state \
-      contain sh -c 'umask 002 && exec opencode-tui "$@"' -- "$@"
+      contain sh -c 'umask 002 && exec opencode-tui "$@"' -- "''${args[@]}"
   '';
 
 in {
@@ -437,9 +466,11 @@ in {
         PRIMARY_GROUP=$(id -gn ${cfg.primaryUser} 2>/dev/null)
 
         # The image must be rebuilt when any of its build inputs change, not
-        # only the Containerfile: baked UID/GID, the OpenCode version pin and
-        # the architecture all shape the result.
-        CURRENT_HASH="$(sha256sum "$CONTAINER_DIR/Containerfile" | cut -d' ' -f1):$AGENT_UID:$PRIMARY_GID:${cfg.container.opencodeVersion}:${pkgs.stdenv.hostPlatform.linuxArch}"
+        # only the Containerfile: the container/ context (a Nix store path
+        # whose name changes with ANY file in it, incl. entrypoint.sh and
+        # opencode-tui.sh), baked UID/GID, the OpenCode version pin and the
+        # architecture all shape the result.
+        CURRENT_HASH="$CONTAINER_DIR:$AGENT_UID:$PRIMARY_GID:${cfg.container.opencodeVersion}:${pkgs.stdenv.hostPlatform.linuxArch}"
         STORED_HASH=""
         if [ -f "$HASH_FILE" ]; then
           STORED_HASH=$(cat "$HASH_FILE")

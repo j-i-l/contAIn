@@ -102,21 +102,29 @@ RUN mkdir -p /home/agent/.local/state/opencode && \
 RUN mkdir -p /home/agent/.local/share/opencode && \
     chown -R agent:"${AGENT_GROUP_NAME}" /home/agent/.local/share/opencode
 
+# Trust all git worktrees regardless of owning uid: project files are owned
+# by the primary user's uid while the agent runs under its own uid, which
+# otherwise triggers git's "dubious ownership" refusal. That refusal breaks
+# OpenCode's project discovery (every session collapses into the fallback
+# "global" project) and any in-repo git usage by the agent. Access control
+# is enforced by the mount allow-list + group permissions, not by git.
+RUN git config --system safe.directory '*'
+
 # TUI attach wrapper script
 COPY opencode-tui.sh /usr/local/bin/opencode-tui
 RUN chmod 755 /usr/local/bin/opencode-tui
 
-# Entrypoint wrapper — creates host-path symlinks, drops to agent user.
+# Entrypoint wrapper — prepares mounted volumes, drops to agent user.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 755 /usr/local/bin/entrypoint.sh
 
-# Workspace is the bind-mount target for project directories.
-RUN mkdir -p /workspace && chown agent:"${AGENT_GROUP_NAME}" /workspace
+# Project directories are bind-mounted at their identical host paths
+# (identity mounts); Podman creates the mountpoint skeleton automatically.
 
 # Set SHELL explicitly for OpenCode's bash tool resolution.
 ENV SHELL=/bin/bash
 
-WORKDIR /workspace
+WORKDIR /home/agent
 
 # Health check — tests the OpenCode server's /global/health endpoint.
 # Reads port from config.json if available, falls back to 3000.
@@ -125,6 +133,6 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD PORT=$(jq -r '.port // 3000' /etc/contain/config.json 2>/dev/null || echo 3000) && \
       curl -sf "http://127.0.0.1:${PORT}/global/health" || exit 1
 
-# The entrypoint runs as root to create symlinks, then drops to agent.
+# The entrypoint runs as root for volume housekeeping, then drops to agent.
 # Do NOT add USER here — the entrypoint handles privilege dropping.
 ENTRYPOINT ["entrypoint.sh"]
