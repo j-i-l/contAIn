@@ -9,8 +9,8 @@ runs their own container instance with their own configuration.
 ```
  Host                            Container
  ----                            ---------
- /home/alice/Projects  ------>   /workspace/Projects  (bind mount, rw)
- /home/alice/work      ------>   /workspace/work      (bind mount, rw)
+ /home/alice/Projects  ------>   /home/alice/Projects (bind mount, rw, identity)
+ /home/alice/work      ------>   /home/alice/work     (bind mount, rw, identity)
 
  ~/.config/contain/ ---->   /etc/contain/   (bind mount, ro)
  ~/.config/opencode/     ---->   ~/.config/opencode/   (bind mount, ro)
@@ -25,7 +25,7 @@ runs their own container instance with their own configuration.
 Based on Ubuntu 24.04. Contains:
 - The `opencode` binary (downloaded at build time)
 - An `agent` user whose group GID matches the primary user's group on the host
-- An entrypoint wrapper (`entrypoint.sh`) that handles path translation
+- An entrypoint wrapper (`entrypoint.sh`) that handles volume housekeeping
   and privilege dropping
 - `opencode-tui.sh` for attaching a TUI to the running server
 
@@ -33,9 +33,8 @@ Based on Ubuntu 24.04. Contains:
 
 The entrypoint runs as root and performs three tasks before starting OpenCode:
 
-1. **Path symlink creation**: Reads `path_map` from `/etc/contain/config.json`
-   and creates symlinks from host-side paths to their `/workspace/` equivalents.
-   This allows OpenCode clients to use host-side paths as working directories.
+1. **Volume housekeeping**: Ensures subdirectories OpenCode expects (e.g.
+   `~/.local/share/opencode/log`) exist inside the bind-mounted volumes.
 
 2. **Umask configuration**: Sets `umask 002` so that files created by the agent
    are group-writable (`664` for files, `775` for directories). This ensures
@@ -48,7 +47,7 @@ The entrypoint runs as root and performs three tasks before starting OpenCode:
 
 Declarative NixOS configuration that:
 - Creates the `agent` system user
-- Generates `config.json` (with `path_map`) and `opencode.json` policy
+- Generates `config.json` and the `opencode.json` policy
 - Builds the container image via `podman build` (passing the primary user's
   GID so the agent shares the same group inside the container)
 - Installs the Quadlet `.container` file
@@ -61,66 +60,60 @@ For non-NixOS deployments:
 - `setup.sh` -- provisions users, builds the container, installs systemd units
 - `prepare-permissions.sh` -- ensures directory traversal permissions
 
-## Path Translation
+## Path Identity
 
 ### The Problem
 
 OpenCode clients (neovim plugin, TUI) connect to the server with the
 host-side project path (e.g., `?directory=/home/alice/projects/foo`).
 OpenCode uses this as `Instance.directory`, which becomes the default
-working directory (`cwd`) for all shell command execution.
+working directory (`cwd`) for shell command execution — and, critically,
+the `directory` identity recorded on every **session**. Session listing is
+scoped by that directory string, so all entry points (server, attached TUI,
+host-side editor plugins) must agree on the exact same path strings, or
+sessions created through one entry point become invisible to the others.
 
-Inside the container, project directories are mounted at `/workspace/...`,
-not at their host-side paths. When OpenCode tries to `posix_spawn` a shell
-with the host-side path as `cwd`, it fails with `ENOENT` because that
-directory doesn't exist in the container's filesystem.
+An earlier design mounted project directories under a container-private
+`/workspace/...` prefix and bridged host paths with entrypoint-created
+symlinks. That produced **divergent directory identities** (`/workspace/nix`
+vs `/home/alice/Projects/nix` for the same project, varying with the entry
+point and image revision), which stranded previously created sessions.
 
 ### The Solution
 
-The entrypoint wrapper creates symlinks from host-side paths to their
-`/workspace/` equivalents at container startup:
+Project directories are bind-mounted at their **identical host paths**
+(identity mounts):
 
 ```
-Container filesystem (after entrypoint):
+Container filesystem:
 
-/home/alice/Projects  ->  /workspace/Projects   (symlink)
-/home/alice/work      ->  /workspace/work        (symlink)
-/workspace/Projects/  (actual bind mount from host)
-/workspace/work/      (actual bind mount from host)
+/home/alice/Projects/  (bind mount from host, same path)
+/home/alice/work/      (bind mount from host, same path)
 ```
 
-This is driven by the `path_map` field in `config.json`:
-
-```json
-{
-  "path_map": {
-    "/home/alice/Projects": "/workspace/Projects",
-    "/home/alice/work": "/workspace/work"
-  }
-}
-```
-
-### Path Map Computation
-
-The container-side paths are computed by finding the common parent directory
-of all configured project paths and stripping it:
-
-| Host paths                                    | Common parent   | Container paths                   |
-|-----------------------------------------------|-----------------|-----------------------------------|
-| `/home/alice/Projects`                        | (single path)   | `/workspace/Projects`             |
-| `/home/alice/Projects`, `/home/alice/work`    | `/home/alice`   | `/workspace/Projects`, `/workspace/work` |
-| `/home/alice/Projects`, `/home/bob/code`      | `/home`         | `/workspace/alice/Projects`, `/workspace/bob/code` |
+There is no path translation layer: no `/workspace`, no symlinks, no
+`path_map`. Podman creates the intermediate mountpoint skeleton
+(e.g. `/home/alice/`) automatically.
 
 ### Security Properties
 
-The symlink tree created by the entrypoint:
+The mountpoint skeleton created by Podman:
 - Intermediate directories (e.g., `/home/alice/`) are owned by `root:root`
   with mode `755`
-- They contain **only** the symlinks to `/workspace/` mounts
+- They contain **only** the project mountpoints
 - The agent can traverse these directories but cannot:
   - Create files in them (not the owner, directory not group-writable)
   - Read any host home directory contents (they don't exist in the container)
   - Access `.ssh/`, `.bashrc`, or any other dotfiles (they don't exist)
+
+### Git Ownership
+
+Project files are owned by the primary user's UID while the agent runs under
+its own UID. Without countermeasures git refuses to operate on such
+worktrees ("dubious ownership"), which breaks OpenCode's project discovery:
+every session collapses into the fallback `global` project. The image
+therefore sets `git config --system safe.directory '*'`. Access control is
+enforced by the mount allow-list plus group permissions, not by git.
 
 ## Permission Model
 
@@ -190,11 +183,10 @@ agent can still commit via git commands — it just can't tamper with the
 systemd starts contain.service (via Quadlet)
   -> podman creates container from localhost/contain:latest
   -> entrypoint.sh runs as root:
-       1. Reads /etc/contain/config.json
-       2. Creates symlinks: /home/alice/Projects -> /workspace/Projects
-       3. Sets umask 002
-       4. Drops to agent user via setpriv
-       5. Execs: opencode serve --hostname 127.0.0.1 --port 3000
+       1. Ensures expected subdirectories exist in mounted volumes
+       2. Sets umask 002
+       3. Drops to agent user via setpriv
+       4. Execs: opencode serve --hostname 127.0.0.1 --port 3000
 ```
 
 ### Health Check
@@ -220,10 +212,6 @@ Located at `~/.config/contain/config.json`.
   "primary_user": "alice",
   "primary_home": "/home/alice",
   "project_paths": ["/home/alice/Projects", "/home/alice/work"],
-  "path_map": {
-    "/home/alice/Projects": "/workspace/Projects",
-    "/home/alice/work": "/workspace/work"
-  },
   "agent_user": "agent",
   "host": "127.0.0.1",
   "port": 3000,
@@ -234,15 +222,15 @@ Located at `~/.config/contain/config.json`.
 ### `opencode.json`
 
 OpenCode policy file. Controls which directories OpenCode is allowed to
-access (using container-side `/workspace/` paths):
+access (host paths — identical inside the container):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": {
     "external_directory": {
-      "/workspace/Projects/**": "allow",
-      "/workspace/work/**": "allow"
+      "/home/alice/Projects/**": "allow",
+      "/home/alice/work/**": "allow"
     }
   }
 }
