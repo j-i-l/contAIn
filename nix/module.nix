@@ -161,7 +161,7 @@ let
       printf 'Choice [1-%d]: ' "''${#project_paths[@]}" >&2
       read -r choice
       case "$choice" in
-        ''''|*[!0-9]*) echo "Invalid choice." >&2; exit 1 ;;
+        '''|*[!0-9]*) echo "Invalid choice." >&2; exit 1 ;;
       esac
       if [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#project_paths[@]}" ]; then
         echo "Invalid choice." >&2
