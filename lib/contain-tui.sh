@@ -23,20 +23,52 @@
 # =========================================================================
 set -euo pipefail
 
-# ── Check that the main container is running ─────────────────────────────
+# ── Locate the host-side config ───────────────────────────────────────────
+# The quadlet unit mounts <config-dir>/config.json to /etc/contain/config.json;
+# read the host path from the installed unit so this works while the
+# container is stopped (on-demand mode).
+QUADLET_UNIT="/etc/containers/systemd/contain.container"
+CONFIG_FILE=""
+if [[ -r "$QUADLET_UNIT" ]]; then
+  CONFIG_FILE=$(sed -n 's|^Volume=\(.*\):/etc/contain/config.json:ro$|\1|p' "$QUADLET_UNIT" | head -n1)
+fi
+if [[ -z "$CONFIG_FILE" || ! -r "$CONFIG_FILE" ]]; then
+  echo "Error: cannot locate contain config.json (looked via ${QUADLET_UNIT})." >&2
+  exit 1
+fi
+
+HOST=$(jq -r '.host // "127.0.0.1"' "$CONFIG_FILE")
+PORT=$(jq -r '.port // 3000' "$CONFIG_FILE")
+ON_DEMAND=$(jq -r 'if has("on_demand") then .on_demand else true end' "$CONFIG_FILE")
+
+# ── Ensure the container is up ────────────────────────────────────────────
 # Use systemctl is-active rather than `podman ps` because the container is
 # managed as a rootful service; an unprivileged `podman ps` only sees the
 # rootless namespace and would always report the container as not running.
 if ! systemctl is-active --quiet contain.service; then
-  echo "Error: contain container is not running." >&2
-  echo "Start it with: systemctl start contain" >&2
-  exit 1
+  if [[ "$ON_DEMAND" == "true" ]]; then
+    # Warm the container THROUGH the activation socket so the start is
+    # attributed to a client connection (correct refcount for
+    # StopWhenUnneeded). The request blocks in the socket backlog until the
+    # container reports healthy. Any completed HTTP response proves
+    # liveness (a 401 from a password-protected server included) — no -f.
+    echo "Starting contain container (on demand)..." >&2
+    if ! curl -s -o /dev/null --max-time 180 "http://${HOST}:${PORT}/global/health"; then
+      echo "Error: contain server did not become healthy on ${HOST}:${PORT}." >&2
+      echo "Check: systemctl status contain contain-proxy contain-image" >&2
+      exit 1
+    fi
+  else
+    echo "Error: contain container is not running." >&2
+    echo "Start it with: systemctl start contain" >&2
+    exit 1
+  fi
 fi
 
-# ── Load project paths from the container's mounted config ───────────────
-mapfile -t project_paths < <(podman exec contain jq -r '.project_paths[]' /etc/contain/config.json)
+# ── Load project paths from the host-side config ──────────────────────────
+mapfile -t project_paths < <(jq -r '.project_paths[]' "$CONFIG_FILE")
 if [[ ${#project_paths[@]} -eq 0 ]]; then
-  echo "Error: no project_paths configured in /etc/contain/config.json." >&2
+  echo "Error: no project_paths configured in ${CONFIG_FILE}." >&2
   exit 1
 fi
 

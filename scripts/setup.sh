@@ -140,6 +140,13 @@ HOST=$(jq -r '.host // "127.0.0.1"' "$CONFIG_FILE")
 PORT=$(jq -r '.port // 3000' "$CONFIG_FILE")
 INSTALL_DIR=$(jq -r '.install_dir // "/opt/contain"' "$CONFIG_FILE")
 
+# On-demand lifecycle (default): the public port is a systemd activation
+# socket; the container starts on first client connection and stops after
+# idle_timeout with no connections. Set "on_demand": false for always-on.
+ON_DEMAND=$(jq -r 'if has("on_demand") then .on_demand else true end' "$CONFIG_FILE")
+IDLE_TIMEOUT=$(jq -r '.idle_timeout // "20min"' "$CONFIG_FILE")
+INTERNAL_PORT=$(jq -r ".internal_port // $((PORT + 1))" "$CONFIG_FILE")
+
 # Read project_paths as a bash array
 readarray -t PROJECT_PATHS < <(jq -r '.project_paths[]' "$CONFIG_FILE")
 
@@ -192,6 +199,11 @@ echo "  Project paths : ${PROJECT_PATHS[*]}"
 echo "  Config dir    : ${CONTAINERD_CONFIG}"
 echo "  Install dir   : ${INSTALL_DIR}"
 echo "  Listen        : ${HOST}:${PORT}"
+if [[ "$ON_DEMAND" == "true" ]]; then
+  echo "  Lifecycle     : on-demand (internal port ${INTERNAL_PORT}, idle ${IDLE_TIMEOUT})"
+else
+  echo "  Lifecycle     : always-on"
+fi
 echo ""
 echo "  Project paths are identity-mounted (same path inside the container)."
 echo "================================================================="
@@ -345,6 +357,12 @@ HOST_PATHS="${HOST_PATHS%$'\n'}"
 CONT_PATHS="${CONT_PATHS%$'\n'}"
 VOLUME_LINES=$(build_volume_lines "$HOST_PATHS" "$CONT_PATHS")
 
+if [[ "$ON_DEMAND" == "true" ]]; then
+  MODE="on-demand"
+else
+  MODE="always-on"
+fi
+
 render_container_unit \
   "${SYSTEMD_DIR}/contain.container.in" \
   "${PRIMARY_HOME}" \
@@ -352,9 +370,31 @@ render_container_unit \
   "${HOST}" \
   "${PORT}" \
   "${VOLUME_LINES}" \
+  "${MODE}" \
+  "$([[ "$MODE" == "on-demand" ]] && echo "${INTERNAL_PORT}" || echo "${PORT}")" \
   > "${QUADLET_DIR}/contain.container"
 
-echo "    Installed ${QUADLET_DIR}/contain.container"
+echo "    Installed ${QUADLET_DIR}/contain.container (${MODE})"
+
+# --- On-demand socket + proxy units ---
+if [[ "$MODE" == "on-demand" ]]; then
+  render_proxy_socket \
+    "${SYSTEMD_DIR}/contain-proxy.socket.in" \
+    "${HOST}" \
+    "${PORT}" \
+    > /etc/systemd/system/contain-proxy.socket
+
+  render_proxy_service \
+    "${SYSTEMD_DIR}/contain-proxy.service.in" \
+    "${HOST}" \
+    "${INTERNAL_PORT}" \
+    "${IDLE_TIMEOUT}" \
+    > /etc/systemd/system/contain-proxy.service
+
+  echo "    Installed contain-proxy.socket + contain-proxy.service (idle: ${IDLE_TIMEOUT})"
+else
+  rm -f /etc/systemd/system/contain-proxy.socket /etc/systemd/system/contain-proxy.service
+fi
 
 # --- Watcher service ---
 WATCH_DIRS_ESCAPED=""
@@ -396,16 +436,25 @@ systemctl daemon-reload
 # Stop existing instances gracefully before (re)starting.
 # These are no-ops on first run (services don't exist yet).
 systemctl stop contain-watcher.service 2>/dev/null || true
+systemctl stop contain-proxy.service contain-proxy.socket 2>/dev/null || true
 systemctl stop contain.service 2>/dev/null || true
 
-# Quadlet-generated units cannot be "enabled" — they're transient.
-# The [Install] section in the .container file handles WantedBy.
-# Just start the service; it will auto-start on boot via the generator.
-systemctl start contain.service
-
-# These are regular unit files in /etc/systemd/system, so enable works:
-systemctl enable --now contain-watcher.service
+# The watcher is pulled up by contain.service (WantedBy=contain.service);
+# enable only creates the .wants symlink, no immediate start needed.
+systemctl enable contain-watcher.service
 systemctl enable --now contain-commit.timer
+
+if [[ "$MODE" == "on-demand" ]]; then
+  # Only the activation socket listens at rest; the container (plus watcher)
+  # starts on the first client connection and stops again when idle.
+  systemctl enable --now contain-proxy.socket
+  echo "    On-demand mode: container starts on first connection to ${HOST}:${PORT}"
+else
+  # Quadlet-generated units cannot be "enabled" — they're transient.
+  # The [Install] section in the .container file handles WantedBy.
+  # Just start the service; it will auto-start on boot via the generator.
+  systemctl start contain.service
+fi
 
 echo ""
 echo "================================================================="

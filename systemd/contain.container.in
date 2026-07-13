@@ -3,15 +3,21 @@
 # /etc/containers/systemd/contain.container
 #
 # Placeholders (sed/awk-replaced by setup.sh):
-#   VOLUME_LINES, PRIMARY_HOME, CONTAINERD_CONFIG, HOST, PORT
+#   VOLUME_LINES, PRIMARY_HOME, CONTAINERD_CONFIG, HOST, PORT (public),
+#   LISTEN_PORT (port OpenCode binds), LIFECYCLE_UNIT_LINES
+#   (StopWhenUnneeded in on-demand mode), LIFECYCLE_CONTAINER_LINES
+#   (Notify=healthy in on-demand mode), INSTALL_SECTION ([Install] block in
+#   always-on mode, empty in on-demand mode)
 
 [Unit]
 Description=contain — Sandboxed AI Agent Container
 After=network-online.target
+@@LIFECYCLE_UNIT_LINES@@
 
 [Container]
 ContainerName=contain
 Image=localhost/contain:latest
+@@LIFECYCLE_CONTAINER_LINES@@
 
 # The entrypoint runs as root for volume housekeeping,
 # then drops to the agent user via setpriv.
@@ -41,6 +47,8 @@ Volume=@@PRIMARY_HOME@@/.local/state/opencode:/home/agent/.local/state/opencode:
 # ---------- Environment ----------
 # Point opencode at the contain policy file (higher precedence than global config).
 Environment=OPENCODE_CONFIG=/etc/contain/opencode.json
+# The healthcheck probes the port OpenCode really listens on.
+Environment=CONTAIN_INTERNAL_PORT=@@LISTEN_PORT@@
 
 # ---------- Networking ----------
 # Host networking keeps things simple; opencode binds to localhost only.
@@ -51,10 +59,8 @@ PodmanArgs=--memory 2g --pids-limit 100
 
 # ---------- Entrypoint args ----------
 # Run OpenCode in server mode (headless HTTP server)
-Exec=serve --hostname @@HOST@@ --port @@PORT@@
+Exec=serve --hostname @@HOST@@ --port @@LISTEN_PORT@@
 
 [Service]
 Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
+@@INSTALL_SECTION@@

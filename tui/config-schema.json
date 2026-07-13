@@ -9,6 +9,21 @@
     "agent_user": { "type": "string", "default": "agent" },
     "host": { "type": "string", "default": "127.0.0.1" },
     "port": { "type": "integer", "default": 3000 },
+    "internal_port": {
+      "type": "integer",
+      "default": 3001,
+      "description": "Port OpenCode binds behind the activation socket (on-demand mode)."
+    },
+    "on_demand": {
+      "type": "boolean",
+      "default": true,
+      "description": "Start the container on first client connection; stop after idle_timeout."
+    },
+    "idle_timeout": {
+      "type": "string",
+      "default": "20min",
+      "description": "systemd time span; container stops after this long with no client connections."
+    },
     "install_dir": { "type": "string", "default": "/opt/contAIn" },
     "agent_systems": {
       "type": "object",

@@ -1,0 +1,20 @@
+# systemd unit — contain on-demand connection proxy
+# TEMPLATE: setup.sh renders this into /etc/systemd/system/contain-proxy.service
+#
+# Socket-activated by contain-proxy.socket. Requires= pulls the container
+# up; systemd-socket-proxyd exits after the idle timeout with no client
+# connections, after which StopWhenUnneeded stops the container again.
+#
+# Placeholders (sed-replaced by setup.sh):
+#   HOST, INTERNAL_PORT, IDLE_TIMEOUT
+
+[Unit]
+Description=contain on-demand connection proxy
+Requires=contain.service
+After=contain.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=@@IDLE_TIMEOUT@@ @@HOST@@:@@INTERNAL_PORT@@
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes

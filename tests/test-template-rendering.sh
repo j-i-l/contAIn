@@ -67,7 +67,7 @@ assert_no_directives_before_first_section() {
 # assert_contains <rendered_output> <expected_substring> <test_name>
 assert_contains() {
   local output="$1" expected="$2" name="$3"
-  if echo "$output" | grep -qF "$expected"; then
+  if echo "$output" | grep -qF -- "$expected"; then
     pass "${name}"
   else
     fail "${name}: expected to find '${expected}'"
@@ -78,11 +78,23 @@ assert_contains() {
 assert_line_count() {
   local output="$1" pattern="$2" expected="$3" name="$4"
   local actual
-  actual=$(echo "$output" | grep -cF "$pattern" || true)
+  actual=$(echo "$output" | grep -cF -- "$pattern" || true)
   if [[ "$actual" -eq "$expected" ]]; then
     pass "${name}"
   else
     fail "${name}: expected ${expected} lines matching '${pattern}', got ${actual}"
+  fi
+}
+
+# assert_not_contains <rendered_output> <substring> <test_name>
+# Matches whole lines starting with the substring (so template comments that
+# merely mention a directive don't trigger false positives).
+assert_not_contains() {
+  local output="$1" unexpected="$2" name="$3"
+  if echo "$output" | grep -q "^$(printf '%s' "$unexpected" | sed 's/[][\.*^$/]/\\&/g')"; then
+    fail "${name}: expected NOT to find line starting with '${unexpected}'"
+  else
+    pass "${name}"
   fi
 }
 
@@ -111,8 +123,16 @@ assert_contains "$RENDERED_1" "Volume=/home/alice/.config/contain/opencode.json:
   "single-path: policy volume resolved"
 assert_contains "$RENDERED_1" "Volume=/home/alice/.config/opencode:/home/agent/.config/opencode:ro" \
   "single-path: opencode config volume resolved"
-assert_contains "$RENDERED_1" "Exec=serve --hostname 127.0.0.1 --port 3000" \
-  "single-path: host/port resolved in Exec"
+assert_contains "$RENDERED_1" "Exec=serve --hostname 127.0.0.1 --port 3001" \
+  "single-path: on-demand default binds internal port (public+1)"
+assert_contains "$RENDERED_1" "StopWhenUnneeded=yes" \
+  "single-path: on-demand default sets StopWhenUnneeded"
+assert_contains "$RENDERED_1" "Notify=healthy" \
+  "single-path: on-demand default sets Notify=healthy"
+assert_contains "$RENDERED_1" "Environment=CONTAIN_INTERNAL_PORT=3001" \
+  "single-path: healthcheck port env resolved"
+assert_not_contains "$RENDERED_1" "WantedBy=multi-user.target" \
+  "single-path: on-demand default has no boot autostart"
 
 # ── Test: Container template — multiple project paths ────────────────────
 
@@ -145,8 +165,81 @@ assert_contains "$RENDERED_3" "Volume=/home/bob/code/backend:/home/bob/code/back
   "multi-path: backend volume correct"
 assert_contains "$RENDERED_3" "Volume=/home/bob/code/shared:/home/bob/code/shared:rw,Z" \
   "multi-path: shared volume correct"
-assert_contains "$RENDERED_3" "Exec=serve --hostname 0.0.0.0 --port 8080" \
-  "multi-path: custom host/port resolved"
+assert_contains "$RENDERED_3" "Exec=serve --hostname 0.0.0.0 --port 8081" \
+  "multi-path: on-demand default derives internal port from custom port"
+
+# ── Test: Container template — always-on mode ─────────────────────────────
+
+echo ""
+echo "=== Container template: always-on mode ==="
+
+RENDERED_AO=$(render_container_unit \
+  "${SYSTEMD_DIR}/contain.container.in" \
+  "/home/alice" \
+  "/home/alice/.config/contain" \
+  "127.0.0.1" \
+  "3000" \
+  "$VOLUME_LINES_1" \
+  "always-on")
+
+assert_no_unreplaced_placeholders "$RENDERED_AO" "always-on"
+assert_no_directives_before_first_section "$RENDERED_AO" "always-on"
+assert_contains "$RENDERED_AO" "Exec=serve --hostname 127.0.0.1 --port 3000" \
+  "always-on: binds public port directly"
+assert_contains "$RENDERED_AO" "WantedBy=multi-user.target" \
+  "always-on: boot autostart present"
+assert_not_contains "$RENDERED_AO" "StopWhenUnneeded=yes" \
+  "always-on: no StopWhenUnneeded"
+assert_not_contains "$RENDERED_AO" "Notify=healthy" \
+  "always-on: no Notify=healthy"
+
+# ── Test: Container template — explicit internal port ─────────────────────
+
+echo ""
+echo "=== Container template: explicit internal port ==="
+
+RENDERED_IP=$(render_container_unit \
+  "${SYSTEMD_DIR}/contain.container.in" \
+  "/home/alice" \
+  "/home/alice/.config/contain" \
+  "127.0.0.1" \
+  "3000" \
+  "$VOLUME_LINES_1" \
+  "on-demand" \
+  "4242")
+
+assert_contains "$RENDERED_IP" "Exec=serve --hostname 127.0.0.1 --port 4242" \
+  "explicit-internal: Exec uses given internal port"
+assert_contains "$RENDERED_IP" "Environment=CONTAIN_INTERNAL_PORT=4242" \
+  "explicit-internal: healthcheck env uses given internal port"
+
+# ── Test: Proxy socket + service templates ────────────────────────────────
+
+echo ""
+echo "=== Proxy socket + service templates ==="
+
+RENDERED_SOCK=$(render_proxy_socket \
+  "${SYSTEMD_DIR}/contain-proxy.socket.in" \
+  "127.0.0.1" \
+  "3000")
+
+assert_no_unreplaced_placeholders "$RENDERED_SOCK" "proxy-socket"
+assert_no_directives_before_first_section "$RENDERED_SOCK" "proxy-socket"
+assert_contains "$RENDERED_SOCK" "ListenStream=127.0.0.1:3000" \
+  "proxy-socket: listen stream resolved"
+
+RENDERED_PROXY=$(render_proxy_service \
+  "${SYSTEMD_DIR}/contain-proxy.service.in" \
+  "127.0.0.1" \
+  "3001" \
+  "20min")
+
+assert_no_unreplaced_placeholders "$RENDERED_PROXY" "proxy-service"
+assert_no_directives_before_first_section "$RENDERED_PROXY" "proxy-service"
+assert_contains "$RENDERED_PROXY" "--exit-idle-time=20min 127.0.0.1:3001" \
+  "proxy-service: idle timeout and backend resolved"
+assert_contains "$RENDERED_PROXY" "Requires=contain.service" \
+  "proxy-service: requires the container"
 
 # ── Test: Container template — paths with spaces ────────────────────────
 

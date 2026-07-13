@@ -7,7 +7,11 @@
 [Unit]
 Description=contain File Ownership Watcher
 After=contain.service
-Wants=contain.service
+# Follow the container lifecycle: contain.service pulls the watcher up (via
+# the WantedBy below) and PartOf stops it together with the container. The
+# watcher must NOT Want/Require contain.service itself — an active
+# dependent would defeat StopWhenUnneeded in on-demand mode.
+PartOf=contain.service
 
 [Service]
 Type=simple
@@ -16,4 +20,4 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=contain.service

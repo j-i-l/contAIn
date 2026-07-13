@@ -1,0 +1,17 @@
+# systemd socket — contain on-demand activation
+# TEMPLATE: setup.sh renders this into /etc/systemd/system/contain-proxy.socket
+#
+# Owns the public OpenCode port. The first client connection activates
+# contain-proxy.service, which pulls the container up.
+#
+# Placeholders (sed-replaced by setup.sh):
+#   HOST, PORT
+
+[Unit]
+Description=contain on-demand activation socket
+
+[Socket]
+ListenStream=@@HOST@@:@@PORT@@
+
+[Install]
+WantedBy=sockets.target

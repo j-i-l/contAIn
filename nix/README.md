@@ -106,7 +106,10 @@ the mounted paths is exposed.
 | `projectPaths` | list of path | - | Directories the agent can access |
 | `agent.user` | string | `"agent"` | Container agent username |
 | `server.host` | string | `"127.0.0.1"` | Server listen address |
-| `server.port` | port | `3000` | Server listen port |
+| `server.port` | port | `3000` | Public client port (activation socket in on-demand mode) |
+| `server.internalPort` | port | `3001` | Port OpenCode binds behind the proxy (on-demand mode) |
+| `onDemand.enable` | bool | `true` | Start on first client connection, stop when idle |
+| `onDemand.idleTimeout` | string | `"20min"` | Idle window before the container stops |
 | `container.memoryLimit` | string | `"2g"` | Container memory limit |
 | `container.pidsLimit` | int | `100` | Container PID limit |
 | `container.opencodeVersion` | string | `"latest"` | OpenCode version to install |

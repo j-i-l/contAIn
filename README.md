@@ -546,16 +546,26 @@ cont[AI]n installs three systemd components:
 | Component | Type | Purpose |
 |-----------|------|---------|
 | `contain.service` | Quadlet (generated) | Runs the container |
-| `contain-watcher.service` | Service | Monitors files, fixes permissions |
+| `contain-proxy.socket` | Socket | Public port; activates on first connection (on-demand mode) |
+| `contain-proxy.service` | Service | Idle-aware proxy to the container (on-demand mode) |
+| `contain-watcher.service` | Service | Monitors files, fixes permissions (follows the container) |
 | `contain-commit.timer` | Timer | Triggers periodic container commits |
 
 **Quadlet Integration:**
 
 The container is managed via Podman Quadlet, which generates a systemd service from the `.container` file in `/etc/containers/systemd/`. This provides:
 
-- Automatic container start on boot
 - Proper dependency ordering
 - Integration with systemd tooling
+
+**On-demand lifecycle (default):** the container is *not* running at rest.
+The first client connection to the public port (opencode.nvim, `contain-tui`)
+starts it via socket activation; after `idle_timeout` (default `20min`) with
+no client connections it stops again. Long-lived connections — the neovim
+plugin's event stream or an attached TUI — keep it running. Set
+`"on_demand": false` in `config.json` (or `services.contain.onDemand.enable
+= false` on NixOS) for the legacy always-on behavior with boot autostart.
+See `docs/architecture.md` → "Container Lifecycle" for the mechanism.
 
 ### Automatic Commits
 

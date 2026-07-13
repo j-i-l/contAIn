@@ -177,16 +177,57 @@ agent can still commit via git commands — it just can't tamper with the
 
 ## Container Lifecycle
 
+### On-Demand Mode (default)
+
+The container does not run at boot. The public port is owned by a systemd
+activation socket, and the container only runs while clients are connected:
+
+```
+opencode.nvim / contain-tui ──TCP──▶ contain-proxy.socket (127.0.0.1:3000)
+                                         │ first connection activates
+                                         ▼
+                              contain-proxy.service
+                              systemd-socket-proxyd --exit-idle-time=20min
+                                         │ forwards to 127.0.0.1:3001
+                                         │ Requires=/After=
+                                         ▼
+                              contain.service
+                              (opencode serve --port 3001,
+                               Notify=healthy, StopWhenUnneeded=yes)
+```
+
+- **Start:** the first TCP connection activates the proxy, which pulls up
+  the container (and transitively the image build and secret-seed units).
+  `Notify=healthy` delays readiness until the container healthcheck passes,
+  so early connections wait in the socket backlog instead of being refused.
+- **Stay up:** long-lived client connections (the neovim plugin's SSE event
+  stream, an attached TUI) keep the proxy busy.
+- **Stop:** when the last connection closes, `systemd-socket-proxyd` exits
+  after the idle timeout; `contain.service` then has no active dependent
+  left and `StopWhenUnneeded=yes` stops it (the watcher follows via
+  `PartOf=`). Session data lives in the bind-mounted `opencode.db`, so
+  nothing is lost across stop/start cycles.
+
+Configure via `on_demand` (bool), `idle_timeout` (systemd time span) and
+`internal_port` in `config.json`, or `services.contain.onDemand.*` /
+`services.contain.server.internalPort` in the NixOS module.
+
+### Always-On Mode (`on_demand: false`)
+
+Legacy behavior: OpenCode binds the public port directly, the container is
+`WantedBy=multi-user.target` and starts at boot; no socket or proxy units
+are installed.
+
 ### Startup Flow
 
 ```
-systemd starts contain.service (via Quadlet)
+contain.service starts (socket activation or boot)
   -> podman creates container from localhost/contain:latest
   -> entrypoint.sh runs as root:
        1. Ensures expected subdirectories exist in mounted volumes
        2. Sets umask 002
        3. Drops to agent user via setpriv
-       4. Execs: opencode serve --hostname 127.0.0.1 --port 3000
+       4. Execs: opencode serve --hostname 127.0.0.1 --port <listen port>
 ```
 
 ### Health Check
