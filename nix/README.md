@@ -170,7 +170,7 @@ Then rebuild:
 sudo nixos-rebuild switch
 ```
 
-The activation script detects Containerfile changes and rebuilds
+The stage-2 `contain-image` service detects image input changes and rebuilds
 automatically. To force a rebuild:
 
 ```bash

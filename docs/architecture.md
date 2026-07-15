@@ -198,8 +198,11 @@ opencode.nvim / contain-tui ──TCP──▶ contain-proxy.socket (127.0.0.1:3
 
 - **Start:** the first TCP connection activates the proxy, which pulls up
   the container (and transitively the image build and secret-seed units).
-  `Notify=healthy` delays readiness until the container healthcheck passes,
-  so early connections wait in the socket backlog instead of being refused.
+  `Notify=healthy` delays readiness until the Quadlet-defined runtime
+  healthcheck passes, so early connections wait in the socket backlog instead
+  of being refused. The healthcheck is attached when Podman creates the
+  container rather than stored in image metadata: contAIn keeps its native OCI
+  image format, whose manifest does not carry Containerfile `HEALTHCHECK`.
 - **Stay up:** long-lived client connections (the neovim plugin's SSE event
   stream, an attached TUI) keep the proxy busy.
 - **Stop:** when the last connection closes, `systemd-socket-proxyd` exits

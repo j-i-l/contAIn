@@ -129,8 +129,16 @@ assert_contains "$RENDERED_1" "StopWhenUnneeded=yes" \
   "single-path: on-demand default sets StopWhenUnneeded"
 assert_contains "$RENDERED_1" "Notify=healthy" \
   "single-path: on-demand default sets Notify=healthy"
-assert_contains "$RENDERED_1" "Environment=CONTAIN_INTERNAL_PORT=3001" \
-  "single-path: healthcheck port env resolved"
+assert_contains "$RENDERED_1" "HealthCmd=curl -sf http://127.0.0.1:3001/global/health" \
+  "single-path: runtime healthcheck uses internal port"
+assert_contains "$RENDERED_1" "HealthInterval=30s" \
+  "single-path: healthcheck interval rendered"
+assert_contains "$RENDERED_1" "HealthTimeout=5s" \
+  "single-path: healthcheck timeout rendered"
+assert_contains "$RENDERED_1" "HealthRetries=3" \
+  "single-path: healthcheck retries rendered"
+assert_contains "$RENDERED_1" "HealthStartPeriod=10s" \
+  "single-path: healthcheck start period rendered"
 assert_not_contains "$RENDERED_1" "WantedBy=multi-user.target" \
   "single-path: on-demand default has no boot autostart"
 
@@ -192,6 +200,8 @@ assert_not_contains "$RENDERED_AO" "StopWhenUnneeded=yes" \
   "always-on: no StopWhenUnneeded"
 assert_not_contains "$RENDERED_AO" "Notify=healthy" \
   "always-on: no Notify=healthy"
+assert_contains "$RENDERED_AO" "HealthCmd=curl -sf http://127.0.0.1:3000/global/health" \
+  "always-on: runtime healthcheck uses public port"
 
 # ── Test: Container template — explicit internal port ─────────────────────
 
@@ -210,8 +220,8 @@ RENDERED_IP=$(render_container_unit \
 
 assert_contains "$RENDERED_IP" "Exec=serve --hostname 127.0.0.1 --port 4242" \
   "explicit-internal: Exec uses given internal port"
-assert_contains "$RENDERED_IP" "Environment=CONTAIN_INTERNAL_PORT=4242" \
-  "explicit-internal: healthcheck env uses given internal port"
+assert_contains "$RENDERED_IP" "HealthCmd=curl -sf http://127.0.0.1:4242/global/health" \
+  "explicit-internal: runtime healthcheck uses given internal port"
 
 # ── Test: Proxy socket + service templates ────────────────────────────────
 

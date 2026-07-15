@@ -65,10 +65,18 @@ let
     ContainerName=contain
     Image=localhost/contain:latest
     ${lib.optionalString cfg.onDemand.enable ''
-    # Delay "started" until the image healthcheck passes so the proxy only
+    # Delay "started" until the runtime healthcheck passes so the proxy only
     # forwards once OpenCode is actually accepting connections.
     Notify=healthy
     ''}
+    # Define health at container creation rather than in image metadata. Podman
+    # drops Containerfile HEALTHCHECK from OCI images, while Quadlet's runtime
+    # health options work with OCI and are what Notify=healthy observes.
+    HealthCmd=curl -sf http://${cfg.server.host}:${toString listenPort}/global/health
+    HealthInterval=30s
+    HealthTimeout=5s
+    HealthRetries=3
+    HealthStartPeriod=10s
     # The entrypoint runs as root for volume housekeeping,
     # then drops to the agent user via setpriv.
 
@@ -92,8 +100,6 @@ let
     Volume=${cfg.primaryHome}/.local/state/opencode:/home/agent/.local/state/opencode:rw
 
     # ---------- Environment ----------
-    # The healthcheck probes the port OpenCode really listens on.
-    Environment=CONTAIN_INTERNAL_PORT=${toString listenPort}
     ${lib.optionalString (cfg.server.passwordEnvFile != null) "EnvironmentFile=${cfg.server.passwordEnvFile}"}
 
     # ---------- Networking ----------

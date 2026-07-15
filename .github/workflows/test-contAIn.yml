@@ -287,9 +287,12 @@ jobs:
           echo "--- Listing contain units ---"
           systemctl list-units --all '*contain*' 2>&1 || true
 
-          echo "--- Checking watcher service is enabled and active ---"
+          echo "--- Checking on-demand units are idle and ready ---"
           systemctl is-enabled contain-watcher.service
-          systemctl is-active contain-watcher.service
+          systemctl is-enabled contain-proxy.socket
+          systemctl is-active contain-proxy.socket
+          ! systemctl is-active --quiet contain.service
+          ! systemctl is-active --quiet contain-watcher.service
 
           echo "--- Checking commit timer ---"
           systemctl is-enabled contain-commit.timer
@@ -306,45 +309,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "--- Waiting for container to start (up to 30s) ---"
-          CONTAINER_RUNNING=false
-          for i in $(seq 1 30); do
-            if sudo podman ps --filter name=contain --format '{{.Names}}' | grep -q '^contain$'; then
-              echo "    Container running after ${i}s"
-              CONTAINER_RUNNING=true
-              break
-            fi
-            sleep 1
-          done
+          CONFIG="$HOME/.config/contain/config.json"
+          HOST=$(jq -r '.host' "$CONFIG")
+          PORT=$(jq -r '.port' "$CONFIG")
 
-          if [[ "$CONTAINER_RUNNING" != "true" ]]; then
-            echo "FAIL: Container did not start within 30s"
-            echo ""
-            echo "--- systemctl status ---"
-            systemctl status contain.service --no-pager 2>&1 || true
-            echo ""
-            echo "--- journalctl ---"
-            journalctl -u contain --no-pager -n 50 2>&1 || true
-            exit 1
-          fi
+          echo "--- Triggering container through activation socket ---"
+          curl -s -o /dev/null --max-time 180 \
+            "http://${HOST}:${PORT}/global/health"
+
+          systemctl is-active contain.service
+          systemctl is-active contain-proxy.service
+          systemctl is-active contain-watcher.service
 
           echo "--- Checking container health status ---"
-          # The container should have a healthcheck defined
           HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
           echo "    Health status: $HEALTH"
-
-          # Allow some time for healthcheck to run
-          sleep 15
-
-          echo "--- Checking health status after 15s ---"
-          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
-          echo "    Health status: $HEALTH"
-
-          # Note: The container may not be healthy if OpenCode needs credentials
-          # The important thing is that the healthcheck mechanism is working
-          if [[ "$HEALTH" == "none" ]]; then
-            echo "WARN: No healthcheck found in container"
-          fi
+          [[ "$HEALTH" == "healthy" ]] || {
+            echo "FAIL: expected runtime healthcheck to report healthy" >&2
+            sudo podman inspect contain >&2
+            exit 1
+          }
 
           echo "PASS: health check from container"
 

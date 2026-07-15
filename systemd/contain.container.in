@@ -18,6 +18,14 @@ After=network-online.target
 ContainerName=contain
 Image=localhost/contain:latest
 @@LIFECYCLE_CONTAINER_LINES@@
+# Define health at container creation rather than in image metadata. Podman
+# drops Containerfile HEALTHCHECK from OCI images, while this runtime check is
+# available to Notify=healthy.
+HealthCmd=curl -sf http://@@HOST@@:@@LISTEN_PORT@@/global/health
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
 
 # The entrypoint runs as root for volume housekeeping,
 # then drops to the agent user via setpriv.
@@ -47,8 +55,6 @@ Volume=@@PRIMARY_HOME@@/.local/state/opencode:/home/agent/.local/state/opencode:
 # ---------- Environment ----------
 # Point opencode at the contain policy file (higher precedence than global config).
 Environment=OPENCODE_CONFIG=/etc/contain/opencode.json
-# The healthcheck probes the port OpenCode really listens on.
-Environment=CONTAIN_INTERNAL_PORT=@@LISTEN_PORT@@
 
 # ---------- Networking ----------
 # Host networking keeps things simple; opencode binds to localhost only.
