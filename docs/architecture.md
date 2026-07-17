@@ -202,7 +202,9 @@ opencode.nvim / contain-tui ──TCP──▶ contain-proxy.socket (127.0.0.1:3
   healthcheck passes, so early connections wait in the socket backlog instead
   of being refused. The healthcheck is attached when Podman creates the
   container rather than stored in image metadata: contAIn keeps its native OCI
-  image format, whose manifest does not carry Containerfile `HEALTHCHECK`.
+  image format, whose manifest does not carry Containerfile `HEALTHCHECK`. A
+  one-second startup probe marks the service ready as soon as OpenCode answers;
+  the slower regular probe then monitors the running container.
 - **Stay up:** long-lived client connections (the neovim plugin's SSE event
   stream, an attached TUI) keep the proxy busy.
 - **Stop:** when the last connection closes, `systemd-socket-proxyd` exits

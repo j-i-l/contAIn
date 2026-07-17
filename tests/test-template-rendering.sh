@@ -139,6 +139,16 @@ assert_contains "$RENDERED_1" "HealthRetries=3" \
   "single-path: healthcheck retries rendered"
 assert_contains "$RENDERED_1" "HealthStartPeriod=10s" \
   "single-path: healthcheck start period rendered"
+assert_contains "$RENDERED_1" "HealthStartupCmd=curl -sf http://127.0.0.1:3001/global/health" \
+  "single-path: startup healthcheck uses internal port"
+assert_contains "$RENDERED_1" "HealthStartupInterval=1s" \
+  "single-path: startup healthcheck interval rendered"
+assert_contains "$RENDERED_1" "HealthStartupTimeout=2s" \
+  "single-path: startup healthcheck timeout rendered"
+assert_contains "$RENDERED_1" "HealthStartupRetries=0" \
+  "single-path: startup healthcheck does not force restarts"
+assert_contains "$RENDERED_1" "HealthStartupSuccess=1" \
+  "single-path: startup healthcheck requires one success"
 assert_not_contains "$RENDERED_1" "WantedBy=multi-user.target" \
   "single-path: on-demand default has no boot autostart"
 
@@ -202,6 +212,8 @@ assert_not_contains "$RENDERED_AO" "Notify=healthy" \
   "always-on: no Notify=healthy"
 assert_contains "$RENDERED_AO" "HealthCmd=curl -sf http://127.0.0.1:3000/global/health" \
   "always-on: runtime healthcheck uses public port"
+assert_contains "$RENDERED_AO" "HealthStartupCmd=curl -sf http://127.0.0.1:3000/global/health" \
+  "always-on: startup healthcheck uses public port"
 
 # ── Test: Container template — explicit internal port ─────────────────────
 
@@ -222,6 +234,8 @@ assert_contains "$RENDERED_IP" "Exec=serve --hostname 127.0.0.1 --port 4242" \
   "explicit-internal: Exec uses given internal port"
 assert_contains "$RENDERED_IP" "HealthCmd=curl -sf http://127.0.0.1:4242/global/health" \
   "explicit-internal: runtime healthcheck uses given internal port"
+assert_contains "$RENDERED_IP" "HealthStartupCmd=curl -sf http://127.0.0.1:4242/global/health" \
+  "explicit-internal: startup healthcheck uses given internal port"
 
 # ── Test: Proxy socket + service templates ────────────────────────────────
 

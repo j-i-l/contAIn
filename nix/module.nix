@@ -77,6 +77,11 @@ let
     HealthTimeout=5s
     HealthRetries=3
     HealthStartPeriod=10s
+    HealthStartupCmd=curl -sf http://${cfg.server.host}:${toString listenPort}/global/health
+    HealthStartupInterval=1s
+    HealthStartupTimeout=2s
+    HealthStartupRetries=0
+    HealthStartupSuccess=1
     # The entrypoint runs as root for volume housekeeping,
     # then drops to the agent user via setpriv.
 
