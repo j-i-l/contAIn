@@ -103,7 +103,7 @@ the mounted paths is exposed.
 | `enable` | bool | `false` | Enable the contain service |
 | `primaryUser` | string | - | Login name of the primary (human) user |
 | `primaryHome` | path | `/home/${primaryUser}` | Home directory of the primary user |
-| `projectPaths` | list of path | - | Directories the agent can access |
+| `projectPaths` | list of path | - | Directories the agent can access; created empty (primary-user-owned) if absent so bind mounts cannot fail |
 | `agent.user` | string | `"agent"` | Container agent username |
 | `server.host` | string | `"127.0.0.1"` | Server listen address |
 | `server.port` | port | `3000` | Public client port (activation socket in on-demand mode) |

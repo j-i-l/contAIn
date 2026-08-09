@@ -501,14 +501,18 @@ in {
       };
 
       # Set up project directory permissions.
-      # Only ensures directories are group-traversable (g+x) so the agent
-      # can navigate via the mapped GID. File permissions are left as-is.
+      # Creates missing project paths (empty, primary-user-owned) so the
+      # container's bind mounts cannot fail on an absent source, then ensures
+      # directories are group-traversable (g+x) so the agent can navigate via
+      # the mapped GID. File permissions are left as-is.
       contain-permissions = {
         text = ''
           ${lib.concatMapStringsSep "\n" (p: ''
-            if [ -d "${p}" ]; then
-              ${pkgs.findutils}/bin/find "${p}" -type d ! -perm -g+x -exec chmod g+x {} +
+            if [ ! -d "${p}" ]; then
+              mkdir -p "${p}"
+              chown ${cfg.primaryUser}: "${p}"
             fi
+            ${pkgs.findutils}/bin/find "${p}" -type d ! -perm -g+x -exec chmod g+x {} +
           '') cfg.projectPaths}
         '';
         deps = [ "contain-dirs" ];

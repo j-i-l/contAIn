@@ -121,7 +121,9 @@ enforced by the mount allow-list plus group permissions, not by git.
 
 When you configure `projectPaths`, you are **opting in** to the agent being
 able to access those directories. This is the primary access control
-mechanism.
+mechanism. A configured path that does not exist yet is created empty and
+primary-user-owned before the container starts, so a declared grant can never
+fail the service's bind mounts.
 
 Inside the container, the `agent` user belongs to a group whose GID matches
 your (the primary user's) primary group. This means:
