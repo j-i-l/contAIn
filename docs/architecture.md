@@ -169,6 +169,11 @@ on directories). This makes the system robust regardless of the umask that
 was active when the file was created (e.g. the entrypoint sets `umask 002`,
 but `podman exec` inherits the default `022`).
 
+The watcher also monitors the OpenCode config, data, and state directories. It
+normalizes those trees to primary-user ownership with mode `0660` for files and
+`0770` for directories, so runtime state such as `opencode.db` remains writable
+by both OpenCode's container agent and the primary user.
+
 ### `.git/` Directories
 
 The `prepare-permissions.sh` script sets `.git/` directories to group

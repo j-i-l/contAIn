@@ -750,7 +750,12 @@ in {
           "${scripts}/lib/contain/contain-watcher.sh"
           cfg.primaryUser
           cfg.agent.user
-        ] ++ cfg.projectPaths);
+        ] ++ cfg.projectPaths ++ [
+          "--runtime"
+          "${cfg.primaryHome}/.config/opencode"
+          "${cfg.primaryHome}/.local/share/opencode"
+          "${cfg.primaryHome}/.local/state/opencode"
+        ]);
         Restart    = "on-failure";
         RestartSec = 5;
       };
