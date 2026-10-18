@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+SPDX-License-Identifier: CC-BY-NC-4.0
+-->
 <div align="center">
   <a name="contain"></a>
 
