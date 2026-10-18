@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # contain-tui — Interactive TUI for contain
 # =========================================================================
 # Attaches an interactive TUI to the running contain container.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+//
+// SPDX-License-Identifier: CC-BY-NC-4.0
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';

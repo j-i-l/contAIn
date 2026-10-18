@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # opencode-tui — Attach an interactive TUI to the running contain server
 # ============================================================================
 # This script runs inside the container and connects to the already-running

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # setup.sh — contain: rootful podman deployment
 # =========================================================================
 # Idempotent setup script. Safe to re-run at any time to converge to the

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # prepare-permissions.sh — Make project directories traversable for the agent
 # =========================================================================
 # This script prepares project directories for use with contain by:
