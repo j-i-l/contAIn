@@ -351,6 +351,7 @@ jobs:
 
       # ── 7. Test health check from container ────────────────
       - name: "Test: health check from container"
+        id: activation-health
         run: |
           set -euo pipefail
 
@@ -361,7 +362,8 @@ jobs:
           echo "--- Triggering container through activation socket ---"
           # v2 readiness endpoint; curl without -f so a 401 (server up behind
           # auth) still counts and pulls the container through the socket.
-          curl -s -o /dev/null --max-time 180 \
+          curl -sS -v -o /dev/null --max-time 180 \
+            --write-out '\nHTTP code: %{http_code} remote: %{remote_ip}:%{remote_port} connect time: %{time_connect}s total time: %{time_total}s\n' \
             "http://${HOST}:${PORT}/api/info"
 
           systemctl is-active contain.service
@@ -373,11 +375,20 @@ jobs:
           echo "    Health status: $HEALTH"
           [[ "$HEALTH" == "healthy" ]] || {
             echo "FAIL: expected runtime healthcheck to report healthy" >&2
-            sudo podman inspect contain >&2
             exit 1
           }
 
           echo "PASS: health check from container"
+
+      - name: "Diagnose activation health failure"
+        if: ${{ failure() && steps.activation-health.outcome == 'failure' }}
+        run: |
+          sudo systemctl status contain-proxy.socket contain-proxy.service contain.service contain-watcher.service --no-pager --full || true
+          sudo journalctl -b -u contain-proxy.socket -u contain-proxy.service -u contain.service -u contain-watcher.service --no-pager -n 150 || true
+          systemctl cat contain-proxy.socket contain-proxy.service contain.service || true
+          sudo ss -ltnp || true
+          sudo podman ps -a || true
+          sudo podman logs --tail 100 contain || true
 
       # ── 8. Test health check from host ─────────────────────
       - name: "Test: health check from host"

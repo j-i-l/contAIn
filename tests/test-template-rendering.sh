@@ -254,6 +254,10 @@ assert_no_unreplaced_placeholders "$RENDERED_SOCK" "proxy-socket"
 assert_no_directives_before_first_section "$RENDERED_SOCK" "proxy-socket"
 assert_contains "$RENDERED_SOCK" "ListenStream=127.0.0.1:3000" \
   "proxy-socket: listen stream resolved"
+assert_not_contains "$RENDERED_SOCK" "BindsTo=contain.service" \
+  "proxy-socket: does not pull in or bind to the container at rest"
+assert_not_contains "$RENDERED_SOCK" "Requires=contain.service" \
+  "proxy-socket: does not require the container at rest"
 
 RENDERED_PROXY=$(render_proxy_service \
   "${SYSTEMD_DIR}/contain-proxy.service.in" \
@@ -267,6 +271,8 @@ assert_contains "$RENDERED_PROXY" "--exit-idle-time=20min 127.0.0.1:3001" \
   "proxy-service: idle timeout and backend resolved"
 assert_contains "$RENDERED_PROXY" "Requires=contain.service" \
   "proxy-service: requires the container"
+assert_contains "$RENDERED_PROXY" "After=contain.service" \
+  "proxy-service: waits for container readiness"
 
 # ── Test: Container template — paths with spaces ────────────────────────
 

@@ -24,6 +24,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     container: ${{ matrix.container && fromJSON(matrix.container) || '' }}
+    defaults:
+      run:
+        shell: bash
 
     strategy:
       fail-fast: false
@@ -31,13 +34,6 @@ jobs:
         include:
           - distro: ubuntu-24.04
             runner: ubuntu-24.04
-            container: ""
-            pkg_install: |
-              sudo apt-get update
-              sudo apt-get install -y podman inotify-tools jq acl
-
-          - distro: ubuntu-22.04
-            runner: ubuntu-22.04
             container: ""
             pkg_install: |
               sudo apt-get update
@@ -89,7 +85,12 @@ jobs:
           echo "--- Podman version ---"
           podman --version
           MAJOR=$(podman --version | grep -oP '\d+' | head -1)
-          [[ "$MAJOR" -ge 4 ]] || { echo "FAIL: podman >= 4.0 required"; exit 1; }
+          MINOR=$(podman --version | grep -oP '\d+' | sed -n 2p)
+          if [[ "$MAJOR" -lt 4 ]] || { [[ "$MAJOR" -eq 4 ]] && [[ "$MINOR" -lt 4 ]]; }; then
+            echo "ERROR: podman >= 4.4 required for quadlet support"
+            exit 1
+          fi
+          echo "Podman version OK"
           echo "--- systemd ---"
           systemctl --version | head -1
           echo "PASS: prerequisites"
@@ -113,8 +114,9 @@ jobs:
           mkdir -p "$HOME/Projects" "$HOME/work"
 
           # Scripted input: user, home, paths, agent_user, host, port, install_dir
+          PRIMARY_USER=$(whoami)
           printf '%s\n' \
-            "$(whoami)" \
+            "$PRIMARY_USER" \
             "" \
             "$HOME/Projects,$HOME/work" \
             "" \
@@ -123,8 +125,11 @@ jobs:
             "" \
           | sudo -E ./scripts/configure.sh
 
-          CONFIG="$HOME/.config/contain/config.json"
-          [[ -f "$CONFIG" ]] || { echo "FAIL: config.json not created"; exit 1; }
+          # Resolve the accepted default home exactly as configure.sh does.
+          PRIMARY_HOME=$(eval echo "~${PRIMARY_USER}")
+          CONFIG="${PRIMARY_HOME}/.config/contain/config.json"
+          [[ -f "$CONFIG" ]] || { echo "FAIL: config.json not created at $CONFIG"; exit 1; }
+          printf 'CONTAIN_CONFIG=%s\n' "$CONFIG" >> "$GITHUB_ENV"
           echo "--- config.json ---"
           cat "$CONFIG"
           echo "PASS: configure.sh"
@@ -140,20 +145,11 @@ jobs:
           mkdir -p "$HOME/Projects/myproject" "$HOME/work/mywork"
           chmod 770 "$HOME/Projects/myproject" "$HOME/work/mywork"
 
-      # ── Smoke 1: Container is running ────────────────────────
-      - name: "Smoke: container is running"
+      # ── Trigger on-demand startup and wait for readiness ─────
+      - name: "Smoke: activation and readiness"
         run: |
           set -euo pipefail
-          echo "--- podman ps ---"
-          sudo podman ps
-          sudo podman ps --format '{{.Names}}' | grep -q 'contAIn'
-          echo "PASS: container is running"
-
-      # ── Smoke 2: Health check ────────────────────────────────
-      - name: "Smoke: health check"
-        run: |
-          set -euo pipefail
-          CONFIG="$HOME/.config/contain/config.json"
+          CONFIG="$CONTAIN_CONFIG"
           PORT=$(jq -r '.port' "$CONFIG")
           HOST=$(jq -r '.host' "$CONFIG")
 
@@ -161,31 +157,45 @@ jobs:
           # v2: /api/info is the readiness endpoint. 200 (no password) or 401
           # (API up behind the auto-generated password) both prove liveness.
           ok=0
-          for i in $(seq 1 30); do
-            STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
-              "http://${HOST}:${PORT}/api/info" 2>/dev/null || echo 000)
+          DEADLINE=$((SECONDS + 180))
+          while (( SECONDS < DEADLINE )); do
+            REMAINING=$((DEADLINE - SECONDS))
+            (( REMAINING > 0 )) || break
+            REQUEST_TIMEOUT=$((REMAINING < 10 ? REMAINING : 10))
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --connect-timeout 5 --max-time "$REQUEST_TIMEOUT" \
+              "http://${HOST}:${PORT}/api/info") || STATUS=000
             if [[ "$STATUS" == 200 || "$STATUS" == 401 ]]; then
-              echo "Readiness check passed (attempt $i, status $STATUS)"
+              echo "Readiness check passed (status $STATUS)"
               ok=1
               break
             fi
-            sleep 2
+            if (( SECONDS < DEADLINE )); then sleep 1; fi
           done
           [[ "$ok" == 1 ]] || \
             { echo "FAIL: readiness endpoint not responding"; exit 1; }
           echo "PASS: health check"
 
+      # ── Smoke 1: Container is running ────────────────────────
+      - name: "Smoke: container is running"
+        run: |
+          set -euo pipefail
+          echo "--- podman ps ---"
+          sudo podman ps
+          sudo podman ps --format '{{.Names}}' | grep -qx 'contain'
+          echo "PASS: container is running"
+
       # ── Smoke 3: Agent user identity ─────────────────────────
       - name: "Smoke: agent user identity"
         run: |
           set -euo pipefail
-          WHOAMI=$(sudo podman exec contAIn whoami)
+          WHOAMI=$(sudo podman exec contain whoami)
           [[ "$WHOAMI" == "agent" ]] || \
             { echo "FAIL: expected agent, got $WHOAMI"; exit 1; }
 
           # Verify GID matches primary user's group
           PRIMARY_GID=$(id -g "$(whoami)")
-          AGENT_GID=$(sudo podman exec contAIn id -g)
+          AGENT_GID=$(sudo podman exec contain id -g)
           [[ "$PRIMARY_GID" == "$AGENT_GID" ]] || \
             { echo "FAIL: GID mismatch primary=$PRIMARY_GID agent=$AGENT_GID"; exit 1; }
           echo "PASS: agent user identity"
@@ -204,14 +214,14 @@ jobs:
           chmod 600 "$HOME/Projects/myproject/secret.txt"
 
           echo "--- Agent should read group-readable file ---"
-          CONTENT=$(sudo podman exec contAIn \
-            cat /workspace/Projects/myproject/readable.txt)
+          CONTENT=$(sudo podman exec contain \
+            cat "$HOME/Projects/myproject/readable.txt")
           [[ "$CONTENT" == "readable" ]] || \
             { echo "FAIL: could not read group-readable file"; exit 1; }
 
           echo "--- Agent should NOT read 600-mode file ---"
-          if sudo podman exec contAIn \
-            cat /workspace/Projects/myproject/secret.txt 2>/dev/null; then
+          if sudo podman exec contain \
+            cat "$HOME/Projects/myproject/secret.txt" 2>/dev/null; then
             echo "FAIL: agent could read 600-mode file"
             exit 1
           fi
@@ -221,9 +231,9 @@ jobs:
       - name: "Smoke: systemd services"
         run: |
           set -euo pipefail
-          echo "--- contAIn.service ---"
-          systemctl is-active contAIn.service || \
-            { echo "FAIL: contAIn.service not active"; exit 1; }
+          echo "--- contain.service ---"
+          systemctl is-active contain.service || \
+            { echo "FAIL: contain.service not active"; exit 1; }
 
           echo "--- contain-watcher.service ---"
           systemctl is-active contain-watcher.service || \
@@ -234,26 +244,33 @@ jobs:
             { echo "FAIL: contain-commit.timer not active"; exit 1; }
           echo "PASS: systemd services"
 
-      # ── Smoke 6: Host-path symlinks ─────────────────────────
-      - name: "Smoke: host-path symlinks in container"
+      # ── Smoke 6: Identity-mounted project paths ──────────────
+      - name: "Smoke: identity mounts in container"
         run: |
           set -euo pipefail
-          # The entrypoint creates symlinks from host paths to /workspace/
-          sudo podman exec contAIn \
-            readlink "$HOME/Projects" | grep -q '/workspace/Projects'
-          sudo podman exec contAIn \
-            readlink "$HOME/work" | grep -q '/workspace/work'
-          echo "PASS: host-path symlinks"
+          for PROJECT in "$HOME/Projects" "$HOME/work"; do
+            sudo podman exec contain test -d "$PROJECT"
+            RESOLVED=$(sudo podman exec contain readlink -f "$PROJECT")
+            [[ "$RESOLVED" == "$PROJECT" ]] || \
+              { echo "FAIL: project path is not identity-mounted: $PROJECT"; exit 1; }
+          done
+          echo "PASS: identity mounts"
 
       # ── Diagnostics on failure ──────────────────────────────
       - name: "Diagnostics (on failure)"
         if: failure()
         run: |
-          echo "=== systemctl status contAIn ==="
-          systemctl status contAIn.service || true
+          echo "=== activation unit status ==="
+          sudo systemctl status contain-proxy.socket contain-proxy.service \
+            contain.service contain-watcher.service --no-pager --full || true
+          echo "=== activation unit definitions ==="
+          systemctl cat contain-proxy.socket contain-proxy.service contain.service || true
+          echo "=== TCP listeners ==="
+          sudo ss -ltnp || true
           echo ""
-          echo "=== journalctl -u contAIn (last 50 lines) ==="
-          journalctl -u contAIn -n 50 --no-pager || true
+          echo "=== activation journal ==="
+          sudo journalctl -b -u contain-proxy.socket -u contain-proxy.service \
+            -u contain.service -u contain-watcher.service -n 150 --no-pager || true
           echo ""
           echo "=== journalctl -u contain-watcher (last 20 lines) ==="
           journalctl -u contain-watcher -n 20 --no-pager || true
@@ -261,8 +278,5 @@ jobs:
           echo "=== podman ps -a ==="
           sudo podman ps -a || true
           echo ""
-          echo "=== podman logs contAIn (last 50 lines) ==="
-          sudo podman logs --tail 50 contAIn || true
-          echo ""
-          echo "=== podman inspect contAIn ==="
-          sudo podman inspect contAIn || true
+          echo "=== podman logs contain (last 50 lines) ==="
+          sudo podman logs --tail 50 contain || true
