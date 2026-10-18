@@ -24,7 +24,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-# Download the opencode binary from GitHub releases.
+# Download the opencode binary.
+# OpenCode v2 is NOT published as GitHub releases anymore (the latest release
+# object is still v1.19.3; the v2 tags carry no assets). v2 ships through the
+# opencode.ai update API:
+#   latest → https://opencode.ai/update/api/latest/cli/opencode/opencode-linux-<arch>.tar.gz
+#   pinned → https://opencode.ai/files/bin/<version>/opencode-linux-<arch>.tar.gz
+# A 1.x pin falls back to the GitHub release tarball so the documented
+# rollback path (opencodeVersion = "1.x") keeps building.
 # Override OPENCODE_VERSION at build time to pin a specific release.
 ARG OPENCODE_VERSION=latest
 ARG OPENCODE_ARCH
@@ -38,11 +45,14 @@ RUN set -e; \
       arm64|aarch64) asset_arch="arm64" ;; \
       *) echo "Unsupported OpenCode architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    if [ "$OPENCODE_VERSION" = "latest" ]; then \
-      url="https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-${asset_arch}.tar.gz"; \
-    else \
-      url="https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz"; \
-    fi; \
+    case "$OPENCODE_VERSION" in \
+      latest) \
+        url="https://opencode.ai/update/api/latest/cli/opencode/opencode-linux-${asset_arch}.tar.gz" ;; \
+      2.*) \
+        url="https://opencode.ai/files/bin/${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz" ;; \
+      *) \
+        url="https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${asset_arch}.tar.gz" ;; \
+    esac; \
     curl -fsSL "$url" -o /tmp/opencode.tar.gz && \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin && \
     chmod 755 /usr/local/bin/opencode && \

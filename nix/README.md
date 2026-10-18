@@ -82,10 +82,14 @@ This will:
 1. Create the `agent` system user (sharing the primary user's group)
 2. Enable Podman
 3. Build the container image (first run only, or when the Containerfile changes)
-4. Generate `config.json` and `opencode.json` in `~/.config/contain/`
-5. Install the Quadlet container file
-6. Start the watcher service and commit timer
-7. Set project directory permissions
+4. Generate `config.json` in `~/.config/contain/` and merge the sandbox
+   policy into `~/.config/opencode/opencode.json` (via the
+   `contain-opencode-config-seed` unit)
+ 5. Install the Quadlet container file
+ 6. Generate a stable OpenCode v2 server password at
+    `/var/lib/contain/server-password` (unless `server.passwordEnvFile` is set)
+ 7. Start the watcher service and commit timer
+ 8. Set project directory permissions
 
 **Note:** Project directories are identity-mounted at their exact host paths
 inside the container (e.g., `/home/alice/Projects` stays
@@ -113,11 +117,14 @@ both the container agent and the primary user.
 | `server.host` | string | `"127.0.0.1"` | Server listen address |
 | `server.port` | port | `3000` | Public client port (activation socket in on-demand mode) |
 | `server.internalPort` | port | `3001` | Port OpenCode binds behind the proxy (on-demand mode) |
+| `server.passwordEnvFile` | nullOr str | `null` | Env file with `OPENCODE_SERVER_PASSWORD`. When unset, `contain-server-password` generates/persists one at `/var/lib/contain/server-password` (v2 always requires a password) |
 | `onDemand.enable` | bool | `true` | Start on first client connection, stop when idle |
 | `onDemand.idleTimeout` | string | `"20min"` | Idle window before the container stops |
 | `container.memoryLimit` | string | `"2g"` | Container memory limit |
 | `container.pidsLimit` | int | `100` | Container PID limit |
-| `container.opencodeVersion` | string | `"latest"` | OpenCode version to install |
+| `container.opencodeVersion` | string | `"latest"` | OpenCode version to install (`latest` or `2.x.y`; a `1.x` pin falls back to the v1 GitHub release) |
+| `opencode.envFiles` | list of str | `[]` | Extra `EnvironmentFile=` entries for the container, e.g. a file with `OPENCODE_API_KEY=<key>` to activate OpenCode Go declaratively (v2 stores runtime credentials in its database, not `auth.json`) |
+| `opencode.configSeedFile` | nullOr str | `null` | JSON merged into `~/.config/opencode/opencode.json` before the container starts (below the sandbox policy) |
 
 ---
 
@@ -133,6 +140,12 @@ sudo contain-tui
 ```
 
 Credentials are saved automatically and persist across sessions — no restart needed.
+
+OpenCode v2 always requires a server password; `contain-tui` handles it for you.
+For the Neovim plugin, set `server.url`/`server.port` to the public port and
+supply the same password (`/var/lib/contain/server-password`, or your
+`server.passwordEnvFile`) — see the main README's "Server Authentication"
+section.
 
 ### Access the TUI
 

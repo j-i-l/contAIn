@@ -95,7 +95,7 @@ jobs:
           echo "PASS: prerequisites"
 
       # ── Create dummy OpenCode config ─────────────────────────
-      - name: Create dummy OpenCode config and auth
+      - name: Create dummy OpenCode config
         run: |
           mkdir -p ~/.config/opencode ~/.local/share/opencode
           cat > ~/.config/opencode/opencode.json <<'EOF'
@@ -103,12 +103,8 @@ jobs:
             "$schema": "https://opencode.ai/config.json"
           }
           EOF
-          cat > ~/.local/share/opencode/auth.json <<'EOF'
-          {
-            "provider": "dummy",
-            "token": "ci-test-token"
-          }
-          EOF
+          # OpenCode v2 stores provider credentials in its database
+          # (opencode.db), not a v1-style auth.json.
 
       # ── Configure ────────────────────────────────────────────
       - name: "Run configure.sh"
@@ -161,16 +157,22 @@ jobs:
           PORT=$(jq -r '.port' "$CONFIG")
           HOST=$(jq -r '.host' "$CONFIG")
 
-          echo "--- Waiting for health endpoint ---"
+          echo "--- Waiting for readiness endpoint (/api/info) ---"
+          # v2: /api/info is the readiness endpoint. 200 (no password) or 401
+          # (API up behind the auto-generated password) both prove liveness.
+          ok=0
           for i in $(seq 1 30); do
-            if curl -sf "http://${HOST}:${PORT}/global/health" > /dev/null 2>&1; then
-              echo "Health check passed (attempt $i)"
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+              "http://${HOST}:${PORT}/api/info" 2>/dev/null || echo 000)
+            if [[ "$STATUS" == 200 || "$STATUS" == 401 ]]; then
+              echo "Readiness check passed (attempt $i, status $STATUS)"
+              ok=1
               break
             fi
             sleep 2
           done
-          curl -sf "http://${HOST}:${PORT}/global/health" || \
-            { echo "FAIL: health endpoint not responding"; exit 1; }
+          [[ "$ok" == 1 ]] || \
+            { echo "FAIL: readiness endpoint not responding"; exit 1; }
           echo "PASS: health check"
 
       # ── Smoke 3: Agent user identity ─────────────────────────

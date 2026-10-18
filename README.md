@@ -122,7 +122,7 @@ cont[AI]n creates a sandboxed environment where an AI coding agent (OpenCode) ca
 │  │  └────────────────────────────────────────────────────────────┘  │   │
 │  │                                                                  │   │
 │  │  Pre-defined Mounts                                              │   │
-│  │    - ~/.config/opencode → /home/agent/.config/opencode (ro)      │   │
+│  │    - ~/.config/opencode → /home/agent/.config/opencode (rw)      │   │
 │  │    - ~/.local/share/opencode → /home/agent/.local/share/... (rw) │   │
 │  │    - ~/.local/state/opencode → /home/agent/.local/state/... (rw) │   │
 │  │    - ~/.config/contain/config.json → /etc/contain/ (ro)          │   │
@@ -317,7 +317,7 @@ This attaches an interactive TUI to the headless OpenCode server running inside 
 
 ### Initial Setup: Authenticate with a Provider
 
-On first use, run `/connect` in the TUI to authenticate with your preferred LLM provider (e.g., GitHub Copilot). The server writes credentials to `~/.local/share/opencode/auth.json` and reloads providers automatically.
+On first use, run `/connect` in the TUI to authenticate with your preferred LLM provider (e.g., GitHub Copilot or OpenCode Go). The server writes credentials to its database in `~/.local/share/opencode/` and reloads providers automatically.
 
 ### TUI Options
 
@@ -430,7 +430,9 @@ cont[AI]n uses rootful Podman to create a container that:
 - **Maps UIDs 1:1** — The `agent` user inside the container has the same UID as the host `agent` user
 - **Uses host networking** — Simplifies access; server binds to localhost only
 - **Mounts specific directories** — Only project directories are accessible read-write
-- **Mounts config read-only** — OpenCode configuration is read-only
+- **Sandbox policy enforced by OpenCode** — A generated v2 `policies` file
+  hard-denies everything outside the active project location and re-allows
+  only the configured paths; a repository cannot weaken it
 - **Mounts data read-write** — OpenCode data (database, credentials, model state) is read-write
 - **Limits resources** — Container is restricted to 2GB RAM and 100 processes
 
@@ -541,11 +543,12 @@ When locked, sensitive files get mode `600` (files) or `700` (directories), maki
 
 ### Systemd Services
 
-cont[AI]n installs three systemd components:
+ cont[AI]n installs the following systemd components:
 
 | Component | Type | Purpose |
 |-----------|------|---------|
 | `contain.service` | Quadlet (generated) | Runs the container |
+| `contain-server-password.service` | Service | Generates the stable OpenCode v2 server password once (skipped if you provide your own) |
 | `contain-proxy.socket` | Socket | Public port; activates on first connection (on-demand mode) |
 | `contain-proxy.service` | Service | Idle-aware proxy to the container (on-demand mode) |
 | `contain-watcher.service` | Service | Monitors files, fixes permissions (follows the container) |
@@ -591,7 +594,7 @@ This preserves:
 ### What the Agent CAN Access
 
 - **Project directories** (read-write) — Only paths listed in `project_paths`
-- **OpenCode config** (read-only) — Your OpenCode settings and themes
+- **OpenCode config** (read-write) — Your OpenCode settings, themes, and provider registration
 - **OpenCode data** (read-write) — Session data, credentials, and model preferences
 
 ### What the Agent CANNOT Access
@@ -609,15 +612,17 @@ An OpenCode policy file is automatically generated at `~/.config/contain/opencod
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "permission": {
-    "external_directory": {
-      "/home/alice/Projects/**": "allow"
-    }
-  }
+  "policies": [
+    { "action": "tool.use", "resource": "external_directory:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "external_directory:/home/alice/Projects/*", "effect": "allow" }
+  ]
 }
 ```
 
-This explicitly allows OpenCode to access only the configured project paths.
+OpenCode v2 evaluates `policies` after permissions and saved approvals, and
+they can only tighten access: the first statement hard-denies everything
+outside the active project location, then each configured project path is
+re-allowed. A repository cannot weaken this boundary via its own config.
 
 ### Network Binding
 
@@ -630,7 +635,40 @@ To expose the server to other machines (not recommended), change `host` to `0.0.
 
 ### Credential Storage
 
-OpenCode credentials are stored in `~/.local/share/opencode/auth.json` on the host. The `~/.local/share/opencode/` and `~/.local/state/opencode/` directories are mounted read-write into the container, so `/connect` can save credentials directly. After authentication, the server reloads providers automatically — no container restart is needed.
+OpenCode v2 stores provider credentials in its database (`~/.local/share/opencode/opencode.db`) on the host. The `~/.local/share/opencode/` and `~/.local/state/opencode/` directories are mounted read-write into the container, so `/connect` can save credentials directly. After authentication, the server reloads providers automatically — no container restart is needed. Alternatively, an OpenCode Go key can be provided declaratively via the `OPENCODE_API_KEY` environment variable (on NixOS: `services.contain.opencode.envFiles`).
+
+### Server Authentication (OpenCode v2)
+
+OpenCode v2's `serve` **always requires authentication**: with no password
+configured it auto-generates a new one on every boot. cont[AI]n therefore
+maintains a single stable `OPENCODE_SERVER_PASSWORD`:
+
+- **NixOS:** the `contain-server-password` unit generates and persists one at
+  `/var/lib/contain/server-password` (root, `0600`). Set
+  `services.contain.server.passwordEnvFile` to your own file (e.g. a sops
+  secret) to take over.
+- **Imperative:** `setup.sh` creates the same file idempotently.
+
+`contain-tui` passes this password to the in-container TUI automatically. For
+the **Neovim plugin**, point it at the public port and give it the same secret
+(v2 clients authenticate with `OPENCODE_PASSWORD`, username `opencode`):
+
+```lua
+require('opencode').setup({
+  server = {
+    url = 'http://127.0.0.1',
+    port = 3000,
+    password = function()
+      -- first line is `OPENCODE_SERVER_PASSWORD=<value>`
+      local line = vim.fn.readfile('/var/lib/contain/server-password')[1]
+      return (line:gsub('^OPENCODE_SERVER_PASSWORD=', ''))
+    end,
+  },
+})
+```
+
+The plugin auto-detects the v2 protocol from the server's health response; no
+other configuration change is needed.
 
 ---
 

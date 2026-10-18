@@ -4,6 +4,11 @@
 # This script runs inside the container and connects to the already-running
 # OpenCode server instance, providing an interactive terminal UI.
 #
+# OpenCode v2 removed `opencode attach`; clients connect with the --server
+# flag instead. If the server was started with OPENCODE_SERVER_PASSWORD
+# (via the container's EnvironmentFile), the client authenticates with
+# OPENCODE_PASSWORD.
+#
 # Usage:
 #   podman exec -it contain opencode-tui
 #   podman exec -it contain opencode-tui --session <id>
@@ -31,4 +36,13 @@ if [ -z "$PORT" ] || [ "$PORT" = "null" ]; then
   PORT="3000"
 fi
 
-exec opencode attach "http://${HOST}:${PORT}" "$@"
+# v2 clients authenticate with OPENCODE_PASSWORD; the server-side secret is
+# OPENCODE_SERVER_PASSWORD from the container environment (EnvironmentFile).
+# Only export it when set — an empty OPENCODE_PASSWORD would force auth on a
+# server that has none.
+if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+  OPENCODE_PASSWORD="$OPENCODE_SERVER_PASSWORD"
+  export OPENCODE_PASSWORD
+fi
+
+exec opencode --server "http://${HOST}:${PORT}" "$@"

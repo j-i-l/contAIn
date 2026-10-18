@@ -179,7 +179,7 @@ use `@@VARIABLE@@` placeholders rendered by `lib/render-template.sh`.
 - Runs OpenCode as the `agent` user (UID mapped to host)
 - Host networking, binds to localhost only
 - Resource limits: 2GB RAM, 100 processes
-- Health check: `curl http://localhost:PORT/health`
+- Health check: `curl http://localhost:PORT/api/info` (accepts 200 or 401)
 
 ### Configuration
 

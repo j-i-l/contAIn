@@ -260,27 +260,47 @@ mkdir -p "${CONTAINERD_CONFIG}"
 chown "${PRIMARY_USER}:" "${CONTAINERD_CONFIG}"
 chmod 750 "${CONTAINERD_CONFIG}"
 
-# Generate external_directory policy — allows the agent to access exactly
-# the paths that are bind-mounted into the container (identity mounts, so
-# host paths are the canonical container paths too).
+# Generate the OpenCode v2 sandbox policy. v2 evaluates `policies` after
+# permissions and saved approvals and can only tighten: the first statement
+# hard-denies every path outside the active location, then each bind-mounted
+# project path is re-allowed (identity mounts, so host paths are the canonical
+# container paths too). This reproduces v1's `permission.external_directory`
+# allow-list posture but cannot be weakened by project config.
 POLICY_FILE="${CONTAINERD_CONFIG}/opencode.json"
 {
   echo '{'
   # shellcheck disable=SC2016 # $schema is a literal JSON key, not a variable
   echo '  "$schema": "https://opencode.ai/config.json",'
-  echo '  "permission": {'
-  echo '    "external_directory": {'
+  echo '  "policies": ['
+  echo '    { "action": "tool.use", "resource": "external_directory:*", "effect": "deny" },'
   for i in "${!PROJECT_PATHS[@]}"; do
     comma=$([[ $i -lt $((${#PROJECT_PATHS[@]} - 1)) ]] && echo "," || echo "")
-    echo "      \"${PROJECT_PATHS[$i]}/**\": \"allow\"${comma}"
+    echo "    { \"action\": \"tool.use\", \"resource\": \"external_directory:${PROJECT_PATHS[$i]}/*\", \"effect\": \"allow\" }${comma}"
   done
-  echo '    }'
-  echo '  }'
+  echo '  ]'
   echo '}'
 } > "${POLICY_FILE}"
 chown "${PRIMARY_USER}:" "${POLICY_FILE}"
 chmod 640 "${POLICY_FILE}"
 echo "    Generated ${POLICY_FILE}"
+
+# OpenCode v2 always requires a server password; without one `opencode serve`
+# mints a fresh secret on every boot and breaks stable client auth. Generate a
+# persistent one once (idempotent — existing values are preserved). The Quadlet
+# EnvironmentFile and the in-container opencode-tui wrapper consume it.
+PASSWORD_DIR="/var/lib/contain"
+PASSWORD_FILE="${PASSWORD_DIR}/server-password"
+mkdir -p "${PASSWORD_DIR}"
+chmod 700 "${PASSWORD_DIR}"
+if [[ -s "${PASSWORD_FILE}" ]]; then
+  echo "    OpenCode server password already present: ${PASSWORD_FILE}"
+else
+  umask 077
+  secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  printf 'OPENCODE_SERVER_PASSWORD=%s\n' "${secret}" > "${PASSWORD_FILE}"
+  chmod 600 "${PASSWORD_FILE}"
+  echo "    Generated OpenCode server password: ${PASSWORD_FILE}"
+fi
 
 # ── 4. Ensure host OpenCode config/data directories exist ─────────────────
 echo ""

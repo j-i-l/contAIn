@@ -62,7 +62,7 @@ jobs:
           echo "Podman version OK"
 
       # ── Dummy OpenCode config ──────────────────────────────
-      - name: Create dummy OpenCode config and auth
+      - name: Create dummy OpenCode config
         run: |
           mkdir -p ~/.config/opencode ~/.local/share/opencode
 
@@ -72,12 +72,10 @@ jobs:
           }
           EOF
 
-          cat > ~/.local/share/opencode/auth.json <<'EOF'
-          {
-            "provider": "dummy",
-            "token": "ci-test-token"
-          }
-          EOF
+          # OpenCode v2 stores provider credentials in its database
+          # (opencode.db), not a v1-style auth.json. CI does not connect a
+          # real provider; the server starts behind an auto-generated password
+          # and readiness is checked via /api/info.
 
       # ── Test configure.sh with scripted input ──────────────
       - name: "Test: configure.sh with scripted input"
@@ -170,15 +168,24 @@ jobs:
           echo "--- Checking policy file exists ---"
           [[ -f "$POLICY" ]] || { echo "FAIL: $POLICY not found"; exit 1; }
 
-          echo "--- Checking valid JSON with external_directory ---"
-          jq -e '.permission.external_directory' "$POLICY" > /dev/null
+          echo "--- Checking valid JSON with v2 policies ---"
+          jq -e '.policies' "$POLICY" > /dev/null
 
-          echo "--- Checking project paths are allowed (container paths) ---"
-          # Policy now uses container-side /workspace paths
-          jq -e '.permission.external_directory["/workspace/Projects/**"]' \
-            "$POLICY" | grep -q allow
-          jq -e '.permission.external_directory["/workspace/work/**"]' \
-            "$POLICY" | grep -q allow
+          echo "--- Checking the hard-deny boundary is present ---"
+          jq -e '.policies[] | select(.action=="tool.use" and .resource=="external_directory:*" and .effect=="deny")' \
+            "$POLICY" > /dev/null
+
+          echo "--- Checking every configured project path is re-allowed ---"
+          # Identity mounts: the policy uses the exact host paths from
+          # config.json, so derive expectations from the single source of truth.
+          while IFS= read -r proj; do
+            [[ -n "$proj" ]] || continue
+            jq -e --arg p "$proj" \
+              '.policies[] | select(.action=="tool.use" and .resource=="external_directory:\($p)/*" and .effect=="allow")' \
+              "$POLICY" > /dev/null \
+              || { echo "FAIL: project path not allowed in policy: $proj"; exit 1; }
+            echo "    allowed: $proj"
+          done < <(jq -r '.project_paths[]' "$HOME/.config/contain/config.json")
 
           echo "--- Checking ownership and mode ---"
           OWNER=$(stat -c '%U' "$POLICY")
@@ -314,8 +321,10 @@ jobs:
           PORT=$(jq -r '.port' "$CONFIG")
 
           echo "--- Triggering container through activation socket ---"
+          # v2 readiness endpoint; curl without -f so a 401 (server up behind
+          # auth) still counts and pulls the container through the socket.
           curl -s -o /dev/null --max-time 180 \
-            "http://${HOST}:${PORT}/global/health"
+            "http://${HOST}:${PORT}/api/info"
 
           systemctl is-active contain.service
           systemctl is-active contain-proxy.service
@@ -341,25 +350,24 @@ jobs:
           HOST=$(jq -r '.host' "$CONFIG")
           PORT=$(jq -r '.port' "$CONFIG")
 
-          echo "--- Testing /global/health endpoint from host ---"
-          echo "    URL: http://${HOST}:${PORT}/global/health"
+          echo "--- Testing /api/info readiness endpoint from host ---"
+          echo "    URL: http://${HOST}:${PORT}/api/info"
 
-          # Try to hit the health endpoint (may fail if OpenCode crashed)
-          RESPONSE=$(curl -sf "http://${HOST}:${PORT}/global/health" 2>&1 || true)
+          # v2: /api/info is the readiness endpoint. 200 (no password / valid
+          # auth) or 401 (API router up behind an auto-generated password) both
+          # prove the server is live. A 000 or 5xx means it is not up.
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+            --max-time 10 "http://${HOST}:${PORT}/api/info" || echo 000)
+          echo "    HTTP status: $STATUS"
 
-          if [[ -n "$RESPONSE" ]]; then
-            echo "    Response: $RESPONSE"
-            echo "$RESPONSE" | jq -e '.healthy' > /dev/null && \
-              echo "PASS: health endpoint returned healthy" || \
-              echo "INFO: health endpoint returned response but not healthy"
-          else
-            echo "    No response from health endpoint"
-            echo "INFO: This may be expected if OpenCode needs valid credentials to start"
-
-            # Check container logs for more info
-            echo "--- Container logs (last 20 lines) ---"
-            sudo podman logs contain 2>&1 | tail -20 || true
-          fi
+          case "$STATUS" in
+            200|401)
+              echo "PASS: readiness endpoint live (status $STATUS)" ;;
+            *)
+              echo "INFO: readiness endpoint not live (status $STATUS)"
+              echo "--- Container logs (last 20 lines) ---"
+              sudo podman logs contain 2>&1 | tail -20 || true ;;
+          esac
 
           echo "PASS: health check from host (test completed)"
 
@@ -719,7 +727,7 @@ jobs:
             -v "$HOME/.local/share/opencode:/home/agent/.local/share/opencode:ro" \
             --entrypoint sh \
             localhost/contain:latest \
-            -c "echo 'tamper' >> /home/agent/.local/share/opencode/auth.json" 2>/dev/null; then
+            -c "echo 'tamper' >> /home/agent/.local/share/opencode/opencode.db" 2>/dev/null; then
             echo "FAIL: agent should NOT be able to write to auth data"
             exit 1
           else
@@ -991,7 +999,7 @@ jobs:
 
           echo "--- Verifying config is unchanged ---"
           POLICY="$HOME/.config/contain/opencode.json"
-          jq -e '.permission.external_directory' "$POLICY" > /dev/null
+          jq -e '.policies' "$POLICY" > /dev/null
 
           echo ""
           echo "PASS: idempotency"

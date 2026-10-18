@@ -121,7 +121,7 @@ assert_line_count "$RENDERED_1" "Volume=/home/alice/Projects:/home/alice/Project
   "single-path: project volume present"
 assert_contains "$RENDERED_1" "Volume=/home/alice/.config/contain/opencode.json:/etc/contain/opencode.json:ro" \
   "single-path: policy volume resolved"
-assert_contains "$RENDERED_1" "Volume=/home/alice/.config/opencode:/home/agent/.config/opencode:ro" \
+assert_contains "$RENDERED_1" "Volume=/home/alice/.config/opencode:/home/agent/.config/opencode:rw" \
   "single-path: opencode config volume resolved"
 assert_contains "$RENDERED_1" "Exec=serve --hostname 127.0.0.1 --port 3001" \
   "single-path: on-demand default binds internal port (public+1)"
@@ -129,7 +129,7 @@ assert_contains "$RENDERED_1" "StopWhenUnneeded=yes" \
   "single-path: on-demand default sets StopWhenUnneeded"
 assert_contains "$RENDERED_1" "Notify=healthy" \
   "single-path: on-demand default sets Notify=healthy"
-assert_contains "$RENDERED_1" "HealthCmd=curl -sf http://127.0.0.1:3001/global/health" \
+assert_contains "$RENDERED_1" "HealthCmd=curl -s -o /dev/null http://127.0.0.1:3001/api/info" \
   "single-path: runtime healthcheck uses internal port"
 assert_contains "$RENDERED_1" "HealthInterval=30s" \
   "single-path: healthcheck interval rendered"
@@ -139,7 +139,7 @@ assert_contains "$RENDERED_1" "HealthRetries=3" \
   "single-path: healthcheck retries rendered"
 assert_contains "$RENDERED_1" "HealthStartPeriod=10s" \
   "single-path: healthcheck start period rendered"
-assert_contains "$RENDERED_1" "HealthStartupCmd=curl -sf http://127.0.0.1:3001/global/health" \
+assert_contains "$RENDERED_1" "HealthStartupCmd=curl -s -o /dev/null http://127.0.0.1:3001/api/info" \
   "single-path: startup healthcheck uses internal port"
 assert_contains "$RENDERED_1" "HealthStartupInterval=1s" \
   "single-path: startup healthcheck interval rendered"
@@ -210,9 +210,9 @@ assert_not_contains "$RENDERED_AO" "StopWhenUnneeded=yes" \
   "always-on: no StopWhenUnneeded"
 assert_not_contains "$RENDERED_AO" "Notify=healthy" \
   "always-on: no Notify=healthy"
-assert_contains "$RENDERED_AO" "HealthCmd=curl -sf http://127.0.0.1:3000/global/health" \
+assert_contains "$RENDERED_AO" "HealthCmd=curl -s -o /dev/null http://127.0.0.1:3000/api/info" \
   "always-on: runtime healthcheck uses public port"
-assert_contains "$RENDERED_AO" "HealthStartupCmd=curl -sf http://127.0.0.1:3000/global/health" \
+assert_contains "$RENDERED_AO" "HealthStartupCmd=curl -s -o /dev/null http://127.0.0.1:3000/api/info" \
   "always-on: startup healthcheck uses public port"
 
 # ── Test: Container template — explicit internal port ─────────────────────
@@ -232,9 +232,9 @@ RENDERED_IP=$(render_container_unit \
 
 assert_contains "$RENDERED_IP" "Exec=serve --hostname 127.0.0.1 --port 4242" \
   "explicit-internal: Exec uses given internal port"
-assert_contains "$RENDERED_IP" "HealthCmd=curl -sf http://127.0.0.1:4242/global/health" \
+assert_contains "$RENDERED_IP" "HealthCmd=curl -s -o /dev/null http://127.0.0.1:4242/api/info" \
   "explicit-internal: runtime healthcheck uses given internal port"
-assert_contains "$RENDERED_IP" "HealthStartupCmd=curl -sf http://127.0.0.1:4242/global/health" \
+assert_contains "$RENDERED_IP" "HealthStartupCmd=curl -s -o /dev/null http://127.0.0.1:4242/api/info" \
   "explicit-internal: startup healthcheck uses given internal port"
 
 # ── Test: Proxy socket + service templates ────────────────────────────────
