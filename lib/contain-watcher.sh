@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # contain-watcher.sh
 # ---------------------------------------------------------------------------
 # Inotify-based daemon that reassigns ownership of files created by the agent

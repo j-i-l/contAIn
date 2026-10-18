@@ -1,9 +1,14 @@
+<!--
+SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+SPDX-License-Identifier: CC-BY-NC-4.0
+-->
 # AGENTS.md — Instructions for cont[AI]n Coding Agents
 
 ## Core Principles
 
-1. **Do not guess.** When uncertain, investigate first. Read the code, run
-   the tests, check the logs. Assumptions lead to wrong fixes.
+1. **Do not guess! Do not fabricate!** When uncertain, investigate first. Read
+   the code, run the tests, check the logs. Assumptions lead to wrong fixes.
+   Any fabricated or inferred output needs to be clearly labeled as such!
 
 2. **Test-driven approach.** Write or identify the relevant test first,
    then implement. Verify the test fails for the right reason before writing
@@ -179,7 +184,7 @@ use `@@VARIABLE@@` placeholders rendered by `lib/render-template.sh`.
 - Runs OpenCode as the `agent` user (UID mapped to host)
 - Host networking, binds to localhost only
 - Resource limits: 2GB RAM, 100 processes
-- Health check: `curl http://localhost:PORT/health`
+- Health check: `curl http://localhost:PORT/api/info` (accepts 200 or 401)
 
 ### Configuration
 

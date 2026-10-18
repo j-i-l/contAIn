@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # entrypoint.sh — contain container entrypoint
 # =========================================================================
 # This script runs as root at container startup. It:

@@ -21,12 +21,16 @@ Image=localhost/contain:latest
 # Define health at container creation rather than in image metadata. Podman
 # drops Containerfile HEALTHCHECK from OCI images, while this runtime check is
 # available to Notify=healthy.
-HealthCmd=curl -sf http://@@HOST@@:@@LISTEN_PORT@@/global/health
+# OpenCode v2: /api/info is the readiness endpoint (GET /global/health is now
+# only the SPA catch-all and answers 200 for any path). curl without -f exits
+# 0 on any HTTP response — 200 (auth ok) or 401 (API up behind auth) — and
+# non-zero only when the server is not listening. No `%` (systemd specifier).
+HealthCmd=curl -s -o /dev/null http://@@HOST@@:@@LISTEN_PORT@@/api/info
 HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=3
 HealthStartPeriod=10s
-HealthStartupCmd=curl -sf http://@@HOST@@:@@LISTEN_PORT@@/global/health
+HealthStartupCmd=curl -s -o /dev/null http://@@HOST@@:@@LISTEN_PORT@@/api/info
 HealthStartupInterval=1s
 HealthStartupTimeout=2s
 HealthStartupRetries=0
@@ -42,14 +46,16 @@ HealthStartupSuccess=1
 # identities canonical across host clients and the attached TUI.
 @@VOLUME_LINES@@
 
-# contain generated policy (external_directory allow-list, read-only)
+# contain generated policy (v2 sandbox policies, read-only)
 Volume=@@CONTAINERD_CONFIG@@/opencode.json:/etc/contain/opencode.json:ro
 
 # contain configuration (for opencode-tui wrapper)
 Volume=@@CONTAINERD_CONFIG@@/config.json:/etc/contain/config.json:ro
 
-# OpenCode global configuration (read-only)
-Volume=@@PRIMARY_HOME@@/.config/opencode:/home/agent/.config/opencode:ro
+# OpenCode global configuration (read-write; OpenCode persists provider
+# registration and helper files here; the sandbox policy is layered on top
+# via OPENCODE_CONFIG below).
+Volume=@@PRIMARY_HOME@@/.config/opencode:/home/agent/.config/opencode:rw
 
 # OpenCode data directory (read-write) — database, auth, logs, snapshots, etc.
 Volume=@@PRIMARY_HOME@@/.local/share/opencode:/home/agent/.local/share/opencode:rw
@@ -58,6 +64,11 @@ Volume=@@PRIMARY_HOME@@/.local/share/opencode:/home/agent/.local/share/opencode:
 Volume=@@PRIMARY_HOME@@/.local/state/opencode:/home/agent/.local/state/opencode:rw
 
 # ---------- Environment ----------
+# OpenCode v2 always requires a server password. setup.sh generates a stable
+# one once (root, 0600) if this file is absent; the in-container opencode-tui
+# wrapper maps OPENCODE_SERVER_PASSWORD -> OPENCODE_PASSWORD for the client.
+EnvironmentFile=/var/lib/contain/server-password
+
 # Point opencode at the contain policy file (higher precedence than global config).
 Environment=OPENCODE_CONFIG=/etc/contain/opencode.json
 

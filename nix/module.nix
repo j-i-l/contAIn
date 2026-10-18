@@ -1,9 +1,26 @@
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.services.contain;
 
   scripts = pkgs.callPackage ./scripts.nix {};
+
+  # OpenCode v2 `serve` always requires a password (it auto-generates a new one
+  # on every boot when OPENCODE_SERVER_PASSWORD is unset, which would break the
+  # TUI/plugin that connect with a stable OPENCODE_PASSWORD). contAIn therefore
+  # always provides a stable one: either the operator's `passwordEnvFile`, or a
+  # file generated once by the contain-server-password unit at this path.
+  serverPasswordFile =
+    if cfg.server.passwordEnvFile != null
+    then cfg.server.passwordEnvFile
+    else "/var/lib/contain/server-password";
+
+  # Generation is only contAIn's responsibility when the operator did not
+  # supply their own env file.
+  manageServerPassword = cfg.server.passwordEnvFile == null;
 
   # Project directories are mounted at their IDENTICAL host paths inside the
   # container (identity mounts). This keeps OpenCode's session `directory`
@@ -31,12 +48,19 @@ let
       agent_systems = cfg.agentSystems;
   });
 
-  # Generate opencode.json policy file. Host paths are canonical inside the
+  # Generate the opencode.json policy file. Host paths are canonical inside the
   # container too (identity mounts), so the allow-list uses them directly.
+  # OpenCode v2: `policies` are evaluated after permissions and saved
+  # approvals and can only tighten — the first statement hard-deny's every
+  # path outside the active location, then each bind-mounted project path is
+  # re-allowed. Unlike v1's `permission.external_directory` map this cannot be
+  # weakened by project-level configuration.
   opencodePolicy = pkgs.writeText "contain-opencode.json" (builtins.toJSON {
     "$schema" = "https://opencode.ai/config.json";
-    permission.external_directory =
-      lib.listToAttrs (map (p: lib.nameValuePair "${p}/**" "allow") cfg.projectPaths);
+    policies =
+      [ { action = "tool.use"; resource = "external_directory:*"; effect = "deny"; } ]
+      ++ map (p: { action = "tool.use"; resource = "external_directory:${p}/*"; effect = "allow"; })
+        cfg.projectPaths;
   });
 
   # Render the Quadlet .container file with Nix-substituted values.
@@ -72,12 +96,17 @@ let
     # Define health at container creation rather than in image metadata. Podman
     # drops Containerfile HEALTHCHECK from OCI images, while Quadlet's runtime
     # health options work with OCI and are what Notify=healthy observes.
-    HealthCmd=curl -sf http://${cfg.server.host}:${toString listenPort}/global/health
+    # OpenCode v2: /api/info is the readiness endpoint (GET /global/health is
+    # now only the SPA catch-all and answers 200 for any path). curl without
+    # -f exits 0 on any HTTP response — 200 (auth ok) or 401 (API up behind
+    # auth) — and non-zero only when the server is not yet listening. No `%`
+    # (systemd specifier) and no pipe (Quadlet ExecStart) in the command.
+    HealthCmd=curl -s -o /dev/null http://${cfg.server.host}:${toString listenPort}/api/info
     HealthInterval=30s
     HealthTimeout=5s
     HealthRetries=3
     HealthStartPeriod=10s
-    HealthStartupCmd=curl -sf http://${cfg.server.host}:${toString listenPort}/global/health
+    HealthStartupCmd=curl -s -o /dev/null http://${cfg.server.host}:${toString listenPort}/api/info
     HealthStartupInterval=1s
     HealthStartupTimeout=2s
     HealthStartupRetries=0
@@ -105,7 +134,14 @@ let
     Volume=${cfg.primaryHome}/.local/state/opencode:/home/agent/.local/state/opencode:rw
 
     # ---------- Environment ----------
-    ${lib.optionalString (cfg.server.passwordEnvFile != null) "EnvironmentFile=${cfg.server.passwordEnvFile}"}
+    # Stable OpenCode server password (v2 always requires auth). When the
+    # operator did not set passwordEnvFile, contain-server-password generates
+    # /var/lib/contain/server-password once. The in-container opencode-tui.sh
+    # maps OPENCODE_SERVER_PASSWORD → OPENCODE_PASSWORD for the client.
+    EnvironmentFile=${serverPasswordFile}
+    # Optional credential env files (e.g. OPENCODE_API_KEY for OpenCode Go —
+    # v2 activates the integration from the environment, no auth.json involved).
+    ${lib.concatMapStringsSep "\n" (f: "EnvironmentFile=${f}") cfg.opencode.envFiles}
 
     # ---------- Networking ----------
     Network=host
@@ -222,7 +258,7 @@ let
     # Any completed HTTP response means the server is up (a 401 from a
     # password-protected server still proves liveness), so no -f here.
     if ! ${pkgs.curl}/bin/curl -s -o /dev/null --max-time 180 \
-        "http://${cfg.server.host}:${toString cfg.server.port}/global/health"; then
+        "http://${cfg.server.host}:${toString cfg.server.port}/api/info"; then
       echo "Error: contain server did not become healthy on ${cfg.server.host}:${toString cfg.server.port}." >&2
       echo "Check: systemctl status contain contain-proxy contain-image" >&2
       exit 1
@@ -237,6 +273,7 @@ let
 
     exec $podman_cmd exec -it --user agent \
       --workdir "$workdir" \
+      --env-file ${serverPasswordFile} \
       -e HOME=/home/agent \
       -e XDG_CONFIG_HOME=/home/agent/.config \
       -e XDG_DATA_HOME=/home/agent/.local/share \
@@ -331,25 +368,34 @@ in {
         type        = lib.types.nullOr lib.types.str;
         default     = null;
         description = ''
-          Optional environment file containing OPENCODE_SERVER_PASSWORD for the
-          OpenCode server. The file should be readable by root and not persisted
-          unless managed as an encrypted secret.
+          Environment file providing `OPENCODE_SERVER_PASSWORD` for the v2
+          OpenCode server. OpenCode v2 always requires authentication, so a
+          stable password is mandatory: when this option is left `null` the
+          `contain-server-password` unit generates and persists one at
+          `/var/lib/contain/server-password` (root, mode 0600). Set this to
+          your own path (e.g. a sops-decrypted secret) to take ownership of
+          the value; the file must contain a single
+          `OPENCODE_SERVER_PASSWORD=<value>` line and be readable by root.
         '';
       };
     };
 
     opencode = {
-      authSeedFile = lib.mkOption {
-        type        = lib.types.nullOr lib.types.str;
-        default     = null;
+      envFiles = lib.mkOption {
+        type        = lib.types.listOf lib.types.str;
+        default     = [];
+        example     = [ "/run/secrets/opencode-go.env" ];
         description = ''
-          Optional file merged into the primary user's OpenCode auth store
-          (`~/.local/share/opencode/auth.json`) before the container starts.
-          Intended for host-managed secrets (e.g. a sops-decrypted path); the
-          seed is authoritative for its own keys, while credentials added at
-          runtime (e.g. via the TUI /connect flow) are preserved. The store
-          is kept agent-writable (0660) because OpenCode >= 1.17 persists
-          /connect credentials to auth.json itself.
+          Additional environment files passed to the container
+          (`EnvironmentFile=`), for host-managed provider credentials.
+          OpenCode v2 stores credentials in its database — v1's `auth.json`
+          seeding is gone — but integrations with an `env` auth method are
+          activated directly from the environment: an
+          `opencode-go` subscription can be provided declaratively with a
+          file containing `OPENCODE_API_KEY=<key>` (readable by root only,
+          e.g. a sops-nix secret). Credentials added at runtime via the TUI
+          `/connect` flow are persisted to the mounted database instead and
+          take precedence for their own integrations.
         '';
       };
 
@@ -486,9 +532,9 @@ in {
 
           # Fix ownership and permissions on existing data/state files.
           # This handles upgrades from older setups where files may have been
-          # created with wrong UID/GID or restrictive permissions. auth.json
-          # is included on purpose: OpenCode >= 1.17 writes /connect
-          # credentials to it, so it must be agent- (group-) writable.
+          # created with wrong UID/GID or restrictive permissions. The v2
+          # database (opencode.db) is included on purpose: OpenCode persists
+          # /connect credentials to it, so it must be agent- (group-) writable.
           for dir in \
             "${cfg.primaryHome}/.local/share/opencode" \
             "${cfg.primaryHome}/.local/state/opencode"; do
@@ -517,6 +563,42 @@ in {
         '';
         deps = [ "contain-dirs" ];
       };
+    };
+
+    # -- OpenCode server password --
+    # v2 `opencode serve` always requires a password; without one it mints a
+    # fresh secret on every boot, which breaks stable client auth (TUI, plugin).
+    # Generate a persistent one once (skip if the operator supplied their own
+    # passwordEnvFile). Lives under the contain state directory so it survives
+    # reboots and image rebuilds.
+    systemd.services.contain-server-password = lib.mkIf manageServerPassword {
+      description = "Generate contAIn OpenCode server password";
+      before = [ "contain.service" ];
+      requiredBy = [ "contain.service" ];
+
+      path = [ pkgs.coreutils ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        StateDirectory = "contain";
+        UMask = "0077";
+      };
+
+      script = ''
+        set -euo pipefail
+
+        f="${serverPasswordFile}"
+        if [ -s "$f" ]; then
+          echo "contain: OpenCode server password already present at $f"
+          exit 0
+        fi
+
+        echo "contain: generating OpenCode server password at $f"
+        secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+        printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$secret" > "$f"
+        chmod 600 "$f"
+      '';
     };
 
     # -- Image build service --
@@ -591,61 +673,6 @@ in {
       '';
     };
 
-    # -- OpenCode auth seed --
-    # Merge a host-provided credential seed into the OpenCode auth store.
-    # OpenCode >= 1.17 persists /connect credentials to auth.json itself, so
-    # the file must stay agent-writable (0660) and runtime-added providers
-    # must survive re-runs: the seed wins for its own keys, everything else
-    # is preserved.
-    systemd.services.contain-opencode-auth-seed = lib.mkIf (cfg.opencode.authSeedFile != null) {
-      description = "Seed contAIn OpenCode auth.json";
-      before = [ "contain.service" ];
-      requiredBy = [ "contain.service" ];
-
-      path = [
-        pkgs.coreutils
-        pkgs.jq
-      ];
-
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-      };
-
-      script = ''
-        set -euo pipefail
-
-        seed=${lib.escapeShellArg cfg.opencode.authSeedFile}
-        dir="${cfg.primaryHome}/.local/share/opencode"
-        dest="$dir/auth.json"
-
-        if [ ! -r "$seed" ]; then
-          echo "contain: OpenCode auth seed is not readable: $seed" >&2
-          exit 1
-        fi
-        if ! jq -e . "$seed" > /dev/null 2>&1; then
-          echo "contain: OpenCode auth seed is not valid strict JSON: $seed" >&2
-          echo 'contain: expected a complete object, e.g. {"provider":{"type":"api","key":"..."}}' >&2
-          exit 1
-        fi
-
-        primary_group="$(id -gn ${cfg.primaryUser})"
-        install -d -o ${cfg.primaryUser} -g "$primary_group" -m 0770 "$dir"
-
-        tmp="$(mktemp "$dir/.auth.json.XXXXXX")"
-        if [ -s "$dest" ] && jq -e . "$dest" > /dev/null 2>&1; then
-          # Existing store survives; the seed is authoritative for its keys.
-          jq -s '.[0] * .[1]' "$dest" "$seed" > "$tmp"
-        else
-          # Normalize so the deployed store is always canonical JSON.
-          jq . "$seed" > "$tmp"
-        fi
-        chown ${cfg.primaryUser}:"$primary_group" "$tmp"
-        chmod 0660 "$tmp"
-        mv -f "$tmp" "$dest"
-      '';
-    };
-
     # -- OpenCode config seed --
     # Deploy the OpenCode config as an agent-writable file: OpenCode persists
     # runtime changes (provider registration from /connect, helper files)
@@ -653,6 +680,11 @@ in {
     # later wins: existing runtime config < host seed < sandbox policy. The
     # policy is last so the declarative sandbox posture is re-asserted on
     # every service start even if the agent edited the file at runtime.
+    # Note: the v2 sandbox policy lives under `policies` (an array). jq's `*`
+    # replaces arrays wholesale rather than merging element-wise, so the
+    # contAIn policy owns the `policies` key entirely — a seed or runtime
+    # config cannot add competing statements. Other keys (permissions, model,
+    # providers, …) still merge normally.
     systemd.services.contain-opencode-config-seed = {
       description = "Seed contAIn OpenCode opencode.json";
       before = [ "contain.service" ];

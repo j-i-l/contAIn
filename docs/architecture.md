@@ -245,7 +245,9 @@ contain.service starts (socket activation or boot)
 ### Health Check
 
 The container includes a health check that curls
-`http://127.0.0.1:${PORT}/global/health` every 30 seconds.
+`http://127.0.0.1:${PORT}/api/info` every 30 seconds. OpenCode v2's
+`/api/info` is the readiness endpoint; both `200` (auth ok / no password) and
+`401` (API router up behind auth) count as healthy.
 
 ### Commit Timer
 
@@ -275,17 +277,18 @@ Located at `~/.config/contain/config.json`.
 ### `opencode.json`
 
 OpenCode policy file. Controls which directories OpenCode is allowed to
-access (host paths — identical inside the container):
+access (host paths — identical inside the container). v2 `policies` are
+evaluated after permissions and saved approvals and can only tighten: deny
+everything outside the active location, then re-allow each project path:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "permission": {
-    "external_directory": {
-      "/home/alice/Projects/**": "allow",
-      "/home/alice/work/**": "allow"
-    }
-  }
+  "policies": [
+    { "action": "tool.use", "resource": "external_directory:*", "effect": "deny" },
+    { "action": "tool.use", "resource": "external_directory:/home/alice/Projects/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "external_directory:/home/alice/work/*", "effect": "allow" }
+  ]
 }
 ```
 

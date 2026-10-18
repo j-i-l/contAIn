@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2024-2026 Jonas I. Liechti <j-i-l@t4d.ch>
+#
+# SPDX-License-Identifier: CC-BY-NC-4.0
 # contain-tui — Interactive TUI for contain
 # =========================================================================
 # Attaches an interactive TUI to the running contain container.
@@ -6,7 +9,8 @@
 # container's read-write bind mounts — no separate container needed.
 #
 # Authentication via /connect works directly: the server handles credential
-# storage through its API and writes auth.json to the mounted data directory.
+# storage through its API and persists it to the database in the mounted
+# data directory.
 #
 # The TUI's working directory decides the OpenCode session `directory`
 # identity. Project paths are identity-mounted (host path == container
@@ -53,7 +57,7 @@ if ! systemctl is-active --quiet contain.service; then
     # container reports healthy. Any completed HTTP response proves
     # liveness (a 401 from a password-protected server included) — no -f.
     echo "Starting contain container (on demand)..." >&2
-    if ! curl -s -o /dev/null --max-time 180 "http://${HOST}:${PORT}/global/health"; then
+    if ! curl -s -o /dev/null --max-time 180 "http://${HOST}:${PORT}/api/info"; then
       echo "Error: contain server did not become healthy on ${HOST}:${PORT}." >&2
       echo "Check: systemctl status contain contain-proxy contain-image" >&2
       exit 1
@@ -138,8 +142,20 @@ fi
 # The XDG variables ensure OpenCode resolves its config/data/state paths to
 # the agent's home, matching the bind-mounted host directories.
 # umask 002 mirrors the entrypoint's umask so new files are 664/dirs 775.
+#
+# OpenCode v2 requires a server password; the container's EnvironmentFile
+# (parsed from the installed quadlet unit) carries OPENCODE_SERVER_PASSWORD.
+# Pass it into the exec session via --env-file so the in-container
+# opencode-tui wrapper can map it to OPENCODE_PASSWORD for the client.
+ENV_FILE_ARGS=()
+PASSWORD_FILE=$(sed -n 's|^EnvironmentFile=\(.*\)$|\1|p' "$QUADLET_UNIT" | head -n1)
+if [[ -n "${PASSWORD_FILE}" && -r "${PASSWORD_FILE}" ]]; then
+  ENV_FILE_ARGS+=(--env-file "${PASSWORD_FILE}")
+fi
+
 exec podman exec -it --user agent \
   --workdir "$workdir" \
+  "${ENV_FILE_ARGS[@]+"${ENV_FILE_ARGS[@]}"}" \
   -e HOME=/home/agent \
   -e XDG_CONFIG_HOME=/home/agent/.config \
   -e XDG_DATA_HOME=/home/agent/.local/share \
