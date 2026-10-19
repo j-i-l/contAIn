@@ -153,6 +153,10 @@ jobs:
           PORT=$(jq -r '.port' "$CONFIG")
           HOST=$(jq -r '.host' "$CONFIG")
 
+          EXEC_START=$(systemctl show contain.service --property=ExecStart --value)
+          [[ "$EXEC_START" == *"--sdnotify=healthy"* ]] || \
+            { echo "FAIL: generated service does not wait for container health"; exit 1; }
+
           echo "--- Waiting for readiness endpoint (/api/info) ---"
           # v2: /api/info is the readiness endpoint. 200 (no password) or 401
           # (API up behind the auto-generated password) both prove liveness.
@@ -264,7 +268,7 @@ jobs:
           sudo systemctl status contain-proxy.socket contain-proxy.service \
             contain.service contain-watcher.service --no-pager --full || true
           echo "=== activation unit definitions ==="
-          systemctl cat contain-proxy.socket contain-proxy.service contain.service || true
+          sudo systemctl cat contain-proxy.socket contain-proxy.service contain.service || true
           echo "=== TCP listeners ==="
           sudo ss -ltnp || true
           echo ""

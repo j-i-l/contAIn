@@ -91,11 +91,12 @@ let
     ${lib.optionalString cfg.onDemand.enable ''
     # Delay "started" until the runtime healthcheck passes so the proxy only
     # forwards once OpenCode is actually accepting connections.
-    Notify=healthy
+    # Quadlet 4.x parses Notify as a boolean; use the CLI health mode directly.
+    PodmanArgs=--sdnotify=healthy
     ''}
     # Define health at container creation rather than in image metadata. Podman
     # drops Containerfile HEALTHCHECK from OCI images, while Quadlet's runtime
-    # health options work with OCI and are what Notify=healthy observes.
+    # health options work with OCI and are what --sdnotify=healthy observes.
     # OpenCode v2: /api/info is the readiness endpoint (GET /global/health is
     # now only the SPA catch-all and answers 200 for any path). curl without
     # -f exits 0 on any HTTP response — 200 (auth ok) or 401 (API up behind

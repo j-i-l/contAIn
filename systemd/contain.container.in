@@ -6,8 +6,8 @@
 #   VOLUME_LINES, PRIMARY_HOME, CONTAINERD_CONFIG, HOST, PORT (public),
 #   LISTEN_PORT (port OpenCode binds), LIFECYCLE_UNIT_LINES
 #   (StopWhenUnneeded in on-demand mode), LIFECYCLE_CONTAINER_LINES
-#   (Notify=healthy in on-demand mode), INSTALL_SECTION ([Install] block in
-#   always-on mode, empty in on-demand mode)
+#   (PodmanArgs=--sdnotify=healthy in on-demand mode), INSTALL_SECTION
+#   ([Install] block in always-on mode, empty in on-demand mode)
 
 [Unit]
 Description=contain — Sandboxed AI Agent Container
@@ -20,7 +20,7 @@ Image=localhost/contain:latest
 @@LIFECYCLE_CONTAINER_LINES@@
 # Define health at container creation rather than in image metadata. Podman
 # drops Containerfile HEALTHCHECK from OCI images, while this runtime check is
-# available to Notify=healthy.
+# available to --sdnotify=healthy.
 # OpenCode v2: /api/info is the readiness endpoint (GET /global/health is now
 # only the SPA catch-all and answers 200 for any path). curl without -f exits
 # 0 on any HTTP response — 200 (auth ok) or 401 (API up behind auth) — and

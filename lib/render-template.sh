@@ -38,7 +38,8 @@ render_container_unit() {
   if [[ "$mode" == "on-demand" ]]; then
     [[ -n "$listen_port" ]] || listen_port=$((port + 1))
     lifecycle_unit_lines="StopWhenUnneeded=yes"
-    lifecycle_container_lines="Notify=healthy"
+    # Quadlet 4.x parses Notify as a boolean; pass the CLI's health mode directly.
+    lifecycle_container_lines="PodmanArgs=--sdnotify=healthy"
   else
     [[ -n "$listen_port" ]] || listen_port="$port"
     install_section=$'[Install]\nWantedBy=multi-user.target'
