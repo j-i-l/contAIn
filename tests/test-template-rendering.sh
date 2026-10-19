@@ -134,6 +134,8 @@ assert_contains "$RENDERED_1" "PodmanArgs=--sdnotify=healthy" \
   "single-path: on-demand default explicitly gates readiness on health"
 assert_not_contains "$RENDERED_1" "Notify=healthy" \
   "single-path: does not use the newer Quadlet Notify string syntax"
+assert_contains "$RENDERED_1" "SuccessExitStatus=130" \
+  "single-path: OpenCode interruption is a successful shutdown"
 assert_contains "$RENDERED_1" "HealthCmd=curl -s -o /dev/null http://127.0.0.1:3001/api/info" \
   "single-path: runtime healthcheck uses internal port"
 assert_contains "$RENDERED_1" "HealthInterval=30s" \
@@ -215,6 +217,8 @@ assert_not_contains "$RENDERED_AO" "StopWhenUnneeded=yes" \
   "always-on: no StopWhenUnneeded"
 assert_not_contains "$RENDERED_AO" "PodmanArgs=--sdnotify=healthy" \
   "always-on: no health-gated notification override"
+assert_contains "$RENDERED_AO" "SuccessExitStatus=130" \
+  "always-on: OpenCode interruption is a successful shutdown"
 assert_contains "$RENDERED_AO" "HealthCmd=curl -s -o /dev/null http://127.0.0.1:3000/api/info" \
   "always-on: runtime healthcheck uses public port"
 assert_contains "$RENDERED_AO" "HealthStartupCmd=curl -s -o /dev/null http://127.0.0.1:3000/api/info" \

@@ -156,6 +156,8 @@ let
 
     [Service]
     Restart=on-failure
+    # OpenCode v2's Effect runtime exits 130 on both SIGTERM and SIGINT.
+    SuccessExitStatus=130
     ${lib.optionalString (!cfg.onDemand.enable) ''
     [Install]
     WantedBy=multi-user.target

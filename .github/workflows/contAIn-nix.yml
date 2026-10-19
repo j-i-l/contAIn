@@ -1060,6 +1060,11 @@ jobs:
             [[ "$STATE" == inactive ]] || \
               { echo "FAIL: $UNIT state=$STATE, expected inactive"; exit 1; }
           done
+          RESULT=$(systemctl show contain.service --property=Result --value)
+          EXIT_STATUS=$(systemctl show contain.service --property=ExecMainStatus --value)
+          echo "    Container stop result=$RESULT exit_status=$EXIT_STATUS"
+          [[ "$RESULT" == success ]] || \
+            { echo "FAIL: container shutdown result=$RESULT, expected success"; exit 1; }
 
           echo "--- Verifying config and policy are unchanged ---"
           AFTER=$(sha256sum "$CONFIG" "$POLICY")
@@ -1414,11 +1419,11 @@ jobs:
 
           echo ""
           echo "=== generated quadlet ==="
-          cat /etc/containers/systemd/contain.container 2>&1 || true
+          sudo cat /etc/containers/systemd/contain.container 2>&1 || true
 
           echo ""
           echo "=== generated watcher service ==="
-          cat /etc/systemd/system/contain-watcher.service 2>&1 || true
+          sudo cat /etc/systemd/system/contain-watcher.service 2>&1 || true
 
           echo ""
           echo "=== contain config.json ==="
