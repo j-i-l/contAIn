@@ -72,6 +72,7 @@
 - **v2**: `/api/info`
   - Returns `200` (auth ok) or `401` (API up behind auth). Both indicate readiness.
 - **Nix Adaptation**: The Quadlet unit’s `HealthCmd` and `HealthStartupCmd` are auto-updated to use `/api/info`.
+- **Startup Readiness**: Both deployment paths use `PodmanArgs=--sdnotify=healthy` so the proxy waits for OpenCode to accept connections. The explicit argument supports older Quadlet versions, including Podman 4.9.3, that parse `Notify` as a boolean.
 
 ---
 
@@ -92,6 +93,13 @@
     ```nix
     services.contain.opencode.configSeedFile = "/path/to/opencode-seed.json";
     ```
+
+---
+
+### 7. **Service Shutdown**
+
+- Both deployment paths set `SuccessExitStatus=130` because OpenCode v2's runtime exits with status `130` on normal `SIGTERM` or `SIGINT` interruption.
+- Other failure statuses remain failures. Any exit with status `130` is treated as successful and does not trigger `Restart=on-failure`.
 
 ---
 
@@ -148,7 +156,12 @@
 
 ## 🧪 **Testing Notes**
 
-- The CI workflows (`test-contAIn.yml`, `e2e-smoke.yml`) have been updated to:
+- **On-Demand Lifecycle**: Full workflows verify idle state after setup reruns, unchanged configuration and policy, and healthy reactivation through the public socket. Directory-recovery tests also verify healthy reactivation before subsequent checks.
+- **Identity Mounts**: Watcher tests use host-resolved absolute project paths inside the container while running as the agent. Mount tests verify actual read-write identity bind mounts and agent-visible path identity rather than legacy mappings or symlinks.
+- **Failure Diagnostics**: Activation failures include verbose curl output, systemd unit status and definitions, activation journals, TCP listeners, and container logs.
+- **Platform Coverage**: The smoke-test matrix covers Ubuntu 24.04 and Fedora latest and checks for Podman 4.4 or newer. Ubuntu 22.04 is no longer in the matrix because its packaged Podman lacks the required Quadlet support; this does not enforce a host OS restriction.
+
+- The CI workflows (`test-contAIn.yml`, `contAIn-nix.yml`, `e2e-smoke.yml`) have been updated to:
   - Use `/api/info` for health checks.
   - Remove `auth.json` seeding tests.
   - Validate v2 `policies` in the generated `opencode.json`.
