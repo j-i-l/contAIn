@@ -1000,18 +1000,45 @@ jobs:
       - name: "Test: idempotency (re-run setup.sh)"
         run: |
           set -euo pipefail
+          CONFIG="$HOME/.config/contain/config.json"
+          POLICY="$HOME/.config/contain/opencode.json"
+          BEFORE=$(sha256sum "$CONFIG" "$POLICY")
+
           echo "--- Running setup.sh a second time ---"
           echo "Y" | sudo -E ./scripts/setup.sh
 
-          echo "--- Verifying services are still running ---"
-          sleep 3
-          sudo podman ps -a --filter name=contain \
-            --format 'table {{.Names}}\t{{.Status}}'
-          systemctl is-active contain-watcher.service
+          echo "--- Verifying on-demand services are idle and ready ---"
+          for UNIT in contain-proxy.socket contain-commit.timer; do
+            systemctl is-enabled "$UNIT"
+            systemctl is-active "$UNIT"
+          done
+          for UNIT in contain.service contain-proxy.service contain-watcher.service; do
+            STATE=$(systemctl show "$UNIT" --property=ActiveState --value)
+            [[ "$STATE" == inactive ]] || \
+              { echo "FAIL: $UNIT state=$STATE, expected inactive"; exit 1; }
+          done
 
-          echo "--- Verifying config is unchanged ---"
-          POLICY="$HOME/.config/contain/opencode.json"
+          echo "--- Verifying config and policy are unchanged ---"
+          AFTER=$(sha256sum "$CONFIG" "$POLICY")
+          [[ "$AFTER" == "$BEFORE" ]] || \
+            { echo "FAIL: config or policy changed on setup rerun"; exit 1; }
           jq -e '.policies' "$POLICY" > /dev/null
+
+          echo "--- Reactivating through the public socket ---"
+          HOST=$(jq -r '.host' "$CONFIG")
+          PORT=$(jq -r '.port' "$CONFIG")
+          STATUS=$(curl -sS -o /dev/null --max-time 180 -w '%{http_code}' \
+            "http://${HOST}:${PORT}/api/info")
+          [[ "$STATUS" == 200 || "$STATUS" == 401 ]] || \
+            { echo "FAIL: readiness endpoint returned HTTP $STATUS"; exit 1; }
+
+          echo "--- Verifying services recovered after setup rerun ---"
+          for UNIT in contain.service contain-proxy.service contain-watcher.service; do
+            systemctl is-active "$UNIT"
+          done
+          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}')
+          [[ "$HEALTH" == healthy ]] || \
+            { echo "FAIL: container health=$HEALTH, expected healthy"; exit 1; }
 
           echo ""
           echo "PASS: idempotency"
