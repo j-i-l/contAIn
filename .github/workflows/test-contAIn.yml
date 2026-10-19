@@ -612,9 +612,7 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT="$HOME/Projects/myproject"
-          WORKSPACE="/workspace/Projects/myproject"
           TEST_FILE="$PROJECT/watcher_test_file"
-          CONTAINER_TEST_FILE="${WORKSPACE}/watcher_test_file"
           EXPECTED_GROUP="$(id -gn)"
 
           echo "--- Verifying container is running ---"
@@ -628,7 +626,7 @@ jobs:
           fi
 
           echo "--- Creating file as agent user via podman exec ---"
-          sudo podman exec --user agent contain touch "$CONTAINER_TEST_FILE"
+          sudo podman exec --user agent contain touch "$TEST_FILE"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership from agent to primary user.
@@ -667,9 +665,7 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT="$HOME/Projects/myproject"
-          WORKSPACE="/workspace/Projects/myproject"
           TEST_DIR="$PROJECT/watcher_test_dir"
-          CONTAINER_TEST_DIR="${WORKSPACE}/watcher_test_dir"
           EXPECTED_GROUP="$(id -gn)"
 
           echo "--- Verifying container is running ---"
@@ -681,7 +677,7 @@ jobs:
           fi
 
           echo "--- Creating directory as agent user via podman exec ---"
-          sudo podman exec --user agent contain mkdir "$CONTAINER_TEST_DIR"
+          sudo podman exec --user agent contain mkdir "$TEST_DIR"
 
           echo "--- Waiting for watcher to process (polling up to 10s) ---"
           # The watcher should reassign ownership.
@@ -1118,57 +1114,39 @@ jobs:
 
           echo "PASS: TUI service check uses systemctl (Bug 2)"
 
-      # ── 17. Test path_map in config.json ────────────────────
-      - name: "Test: path_map in config.json"
+      # ── 17. Test configured identity bind mounts ────────────
+      - name: "Test: identity bind mounts from config"
         run: |
           set -euo pipefail
           CONFIG="$HOME/.config/contain/config.json"
 
-          echo "--- Checking path_map exists in config ---"
-          jq -e '.path_map' "$CONFIG" > /dev/null || \
-            { echo "FAIL: path_map not found in config.json"; exit 1; }
+          echo "--- Checking obsolete path_map is absent ---"
+          jq -e 'has("path_map") | not' "$CONFIG" > /dev/null || \
+            { echo "FAIL: legacy path_map remains in config.json"; exit 1; }
 
-          echo "--- Checking path_map has correct entries ---"
-          MAP=$(jq -r '.path_map | to_entries[] | "\(.key) -> \(.value)"' "$CONFIG")
-          echo "$MAP"
+          echo "--- Checking configured paths are identity bind mounts ---"
+          MOUNTS=$(sudo podman inspect contain --format '{{json .Mounts}}')
+          while IFS= read -r PROJECT; do
+            jq -e --arg path "$PROJECT" \
+              'any(.[]; .Type == "bind" and .Source == $path and .Destination == $path and .RW == true)' \
+              <<< "$MOUNTS" > /dev/null || \
+              { echo "FAIL: missing read-write identity bind mount for $PROJECT"; exit 1; }
+          done < <(jq -r '.project_paths[]' "$CONFIG")
 
-          # Verify both project paths are mapped
-          COUNT=$(jq '.path_map | length' "$CONFIG")
-          [[ "$COUNT" -eq 2 ]] || \
-            { echo "FAIL: expected 2 path_map entries, got $COUNT"; exit 1; }
+          echo "PASS: configured identity bind mounts"
 
-          echo "--- Checking each host path maps to a /workspace path ---"
-          jq -r '.path_map | to_entries[] | .value' "$CONFIG" | while read -r cpath; do
-            [[ "$cpath" == /workspace/* ]] || \
-              { echo "FAIL: container path '$cpath' does not start with /workspace/"; exit 1; }
-          done
-
-          echo "--- Checking specific mappings ---"
-          jq -e ".path_map[\"$HOME/Projects\"]" "$CONFIG" | grep -q '/workspace/Projects' || \
-            { echo "FAIL: Projects path not correctly mapped"; exit 1; }
-          jq -e ".path_map[\"$HOME/work\"]" "$CONFIG" | grep -q '/workspace/work' || \
-            { echo "FAIL: work path not correctly mapped"; exit 1; }
-
-          echo "PASS: path_map in config.json"
-
-      # ── 18. Test host-path symlinks exist in container ──────
-      - name: "Test: host-path symlinks exist in container"
+      # ── 18. Test agent-visible project path identity ────────
+      - name: "Test: project paths retain identity inside container"
         run: |
           set -euo pipefail
 
-          echo "--- Checking symlink for Projects ---"
-          LINK=$(sudo podman exec contain readlink "$HOME/Projects")
-          echo "    $HOME/Projects -> $LINK"
-          [[ "$LINK" == "/workspace/Projects" ]] || \
-            { echo "FAIL: expected symlink to /workspace/Projects, got '$LINK'"; exit 1; }
-          echo "PASS: Projects symlink correct"
-
-          echo "--- Checking symlink for work ---"
-          LINK=$(sudo podman exec contain readlink "$HOME/work")
-          echo "    $HOME/work -> $LINK"
-          [[ "$LINK" == "/workspace/work" ]] || \
-            { echo "FAIL: expected symlink to /workspace/work, got '$LINK'"; exit 1; }
-          echo "PASS: work symlink correct"
+          CONFIG="$HOME/.config/contain/config.json"
+          while IFS= read -r PROJECT; do
+            sudo podman exec --user agent contain test -d "$PROJECT"
+            RESOLVED=$(sudo podman exec --user agent contain readlink -f "$PROJECT")
+            [[ "$RESOLVED" == "$PROJECT" ]] || \
+              { echo "FAIL: project path $PROJECT resolves to $RESOLVED"; exit 1; }
+          done < <(jq -r '.project_paths[]' "$CONFIG")
 
           echo "--- Checking parent directory exists and is owned by root ---"
           PARENT_OWNER=$(sudo podman exec contain stat -c '%U' "$(dirname "$HOME/Projects")")
@@ -1177,12 +1155,12 @@ jobs:
             { echo "FAIL: parent dir owner=$PARENT_OWNER, expected root"; exit 1; }
           echo "PASS: parent directory owned by root"
 
-          echo "--- Checking ls through symlink shows real contents ---"
+          echo "--- Checking ls through identity mount shows real contents ---"
           sudo podman exec contain ls "$HOME/Projects" > /dev/null
-          echo "PASS: ls through symlink works"
+          echo "PASS: ls through identity mount works"
 
           echo ""
-          echo "PASS: host-path symlinks"
+          echo "PASS: project path identity"
 
       # ── 19. Test agent cannot access host home contents ─────
       - name: "Test: agent cannot access host home directory contents"
