@@ -376,7 +376,7 @@ jobs:
           systemctl is-active contain-watcher.service
 
           echo "--- Checking container health status ---"
-          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+          HEALTH=$(sudo podman container inspect contain --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
           echo "    Health status: $HEALTH"
           [[ "$HEALTH" == "healthy" ]] || {
             echo "FAIL: expected runtime healthcheck to report healthy" >&2
@@ -1084,7 +1084,7 @@ jobs:
           for UNIT in contain.service contain-proxy.service contain-watcher.service; do
             systemctl is-active "$UNIT"
           done
-          HEALTH=$(sudo podman inspect contain --format '{{.State.Health.Status}}')
+          HEALTH=$(sudo podman container inspect contain --format '{{.State.Health.Status}}')
           [[ "$HEALTH" == healthy ]] || \
             { echo "FAIL: container health=$HEALTH, expected healthy"; exit 1; }
 
@@ -1211,7 +1211,8 @@ jobs:
             { echo "FAIL: config.json contains stale path_map"; exit 1; }
 
           echo "--- Checking configured project paths have read-write identity bind mounts ---"
-          MOUNTS=$(sudo podman inspect contain --format '{{json .Mounts}}')
+          MOUNTS=$(sudo podman container inspect contain |
+            jq -ce '.[0].Mounts | select(type == "array")')
           while IFS= read -r PROJECT; do
             jq -e --arg path "$PROJECT" \
               'any(.[]; .Type == "bind" and .Source == $path and .Destination == $path and .RW == true)' \
