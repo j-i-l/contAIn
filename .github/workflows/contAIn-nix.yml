@@ -1167,6 +1167,21 @@ jobs:
             { echo "FAIL: ~/.config/opencode mode=$MODE expected=770"; exit 1; }
           echo "    PASS: ~/.config/opencode owner=$OWNER mode=$MODE"
 
+          # setup.sh leaves on-demand services idle; verify recovery before
+          # subsequent tests inspect or exec into the running container.
+          echo "--- Reactivating after directory recovery ---"
+          CONFIG="$HOME/.config/contain/config.json"
+          HOST=$(jq -r '.host' "$CONFIG")
+          PORT=$(jq -r '.port' "$CONFIG")
+          STATUS=$(curl -sS -o /dev/null --max-time 180 -w '%{http_code}' \
+            "http://${HOST}:${PORT}/api/info")
+          [[ "$STATUS" == 200 || "$STATUS" == 401 ]] || \
+            { echo "FAIL: readiness endpoint returned HTTP $STATUS"; exit 1; }
+          systemctl is-active contain.service
+          HEALTH=$(sudo podman container inspect contain --format '{{.State.Health.Status}}')
+          [[ "$HEALTH" == healthy ]] || \
+            { echo "FAIL: container health=$HEALTH, expected healthy"; exit 1; }
+
           echo ""
           echo "PASS: Nix TUI handles missing OpenCode dirs"
 
