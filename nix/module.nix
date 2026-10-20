@@ -63,6 +63,8 @@ let
         cfg.projectPaths;
   });
 
+  cliSettingsFile = pkgs.writeText "contain-cli-settings.json" (builtins.toJSON cfg.opencode.cliSettings);
+
   # Render the Quadlet .container file with Nix-substituted values.
   # Identity mounts: host path == container path.
   volumeLines = lib.concatMapStringsSep "\n" (p:
@@ -390,6 +392,21 @@ in {
     };
 
     opencode = {
+      cliSettings = lib.mkOption {
+        type = lib.types.attrsOf lib.types.anything;
+        default = { session.tps = true; };
+        example = { session.tps = true; session.thinking = "hide"; };
+        description = ''
+          Non-secret OpenCode v2 CLI/TUI preferences merged into private
+          config/cli.json before container startup. Declarative keys win;
+          unrelated runtime preferences survive. Average tokens per second
+          (session.tps) is enabled by default; set it to false to disable.
+          Existing cli.json must be a strict JSON object (comments/trailing
+          commas are refused without overwriting). This is separate from
+          opencode.json server configuration and does not configure Neovim.
+        '';
+      };
+
       envFiles = lib.mkOption {
         type        = lib.types.listOf lib.types.str;
         default     = [];
@@ -412,10 +429,10 @@ in {
         type        = lib.types.nullOr lib.types.str;
         default     = null;
         description = ''
-          Optional JSON file merged into the primary user's OpenCode config
-          (`~/.config/opencode/opencode.json`) before the container starts.
+          Optional JSON file merged into private config/opencode.json under
+          opencode.stateRoot before the container starts.
           Layering (later wins): existing runtime config < this seed <
-          contAIn's sandbox policy. The file is kept agent-writable (0660):
+          contAIn's sandbox policy. The file is kept agent-owned (0600):
           OpenCode persists runtime changes (e.g. provider registration from
           /connect) into its config, so a read-only config breaks those
           flows while the seed + policy re-assert declarative keys on every
@@ -743,6 +760,10 @@ in {
         chown ${cfg.agent.user}:"$primary_group" "$tmp"
         chmod 0600 "$tmp"
         mv -f "$tmp" "$dest"
+
+        ${pkgs.bash}/bin/bash ${../lib/contain-cli-config-seed.sh} \
+          "$dir/cli.json" "$(id -u ${cfg.agent.user})" \
+          "$(id -g ${cfg.primaryUser})" ${cliSettingsFile}
       '';
     };
 

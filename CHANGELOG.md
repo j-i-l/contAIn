@@ -1,5 +1,52 @@
 # CHANGELOG: OpenCode v1 → v2 Upgrade
 
+## Unreleased
+
+### Added
+- NixOS `services.contain.opencode.cliSettings` merges declarative CLI/TUI
+  preferences into private `config/cli.json`. `session.tps = true` is the
+  default, explicitly enabling average token throughput (`tok/s`) in the
+  OpenCode v2.1 TUI. Set it to `false` to disable. This is not a server
+  `opencode.json` setting and does not configure Neovim's display.
+- CLI settings seeding preserves unrelated preferences, installs an
+  agent-owned `0600` file atomically, and refuses invalid/non-object strict
+  JSON or a symlink destination without overwriting it. Comments/trailing
+  commas in an existing `cli.json` require conversion before seeding.
+- Regression coverage for CLI preference merging, explicit TPS disable,
+  idempotence, permissions, invalid input, and destination symlinks.
+
+### Changed
+- NixOS OpenCode config/data/state now live under
+  `services.contain.opencode.stateRoot` (default `/var/lib/contain/opencode`),
+  separate from the primary user's home. Persist this path on ephemeral-root
+  hosts; private state is agent-owned, with database/WAL/SHM and config files
+  owner-only. Config seeds also install agent-owned `0600` files.
+- The project watcher leaves private runtime state alone. Agent-created
+  project files use primary-user/shared-group ownership, ordinary files
+  `0660`, executable bits preserved, and directories `2770`; existing
+  human-owned files and `.git` metadata are not normalized.
+
+### Fixed
+- Stage-2 runtime migration retains SQLite sidecars, unchanged legacy
+  sources, and an independent private recovery copy. Interrupted staging is
+  archived before a fresh copy, never merged into live state.
+- Internal relative package-manager symlinks survive migration. Absolute,
+  escaping, dangling and cyclic links and special files remain rejected;
+  ownership changes do not dereference links.
+- Removed unnecessary network-online ordering from local state preparation.
+
+### Verification
+- OpenCode v2.1.0 CLI filename and TPS semantics verified against upstream:
+  https://github.com/anomalyco/opencode/blob/v2.1.0/packages/cli/src/config/config.ts
+  and https://github.com/anomalyco/opencode/blob/v2.1.0/packages/tui/src/config/index.tsx
+  (2026-10-21). Upstream already defaults TPS to true; the new option makes
+  the preference explicit and declaratively configurable.
+- Private-state migration, healthy socket activation, OpenCode v2.1.0, and
+  owner-only database/sidecar/config modes validated on a maintainer-run
+  canary. CLI seed activation and restart/reboot checks remain pending.
+- These NixOS state/CLI changes do not migrate the shell installer's legacy
+  layout or seed its CLI settings.
+
 ## 🚀 **Major Changes**
 
 ### 1. **OpenCode v2 Support**
@@ -109,7 +156,9 @@
 |--------|------|---------|-------------|
 | `server.passwordEnvFile` | `nullOr str` | `null` | Custom `OPENCODE_SERVER_PASSWORD` env file. If unset, auto-generated at `/var/lib/contain/server-password`. |
 | `opencode.envFiles` | `listOf str` | `[]` | Additional `EnvironmentFile=` entries for the container (e.g., `OPENCODE_API_KEY`). |
-| `opencode.configSeedFile` | `nullOr str` | `null` | JSON file merged into `~/.config/opencode/opencode.json`. |
+| `opencode.configSeedFile` | `nullOr str` | `null` | JSON file merged into private `config/opencode.json` under `opencode.stateRoot`. |
+| `opencode.stateRoot` | `str` | `"/var/lib/contain/opencode"` | Private service config/data/state; persist on ephemeral-root hosts. |
+| `opencode.cliSettings` | `attrs` | `{ session.tps = true; }` | Non-secret CLI/TUI settings merged into private `config/cli.json`. |
 | `container.opencodeVersion` | `str` | `"latest"` | OpenCode version to install (`"latest"`, `"2.x.y"`, or `"1.x"` for fallback). |
 
 ---

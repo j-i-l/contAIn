@@ -62,6 +62,11 @@ jobs:
           fi
           echo "Podman version OK"
 
+      - name: Unit tests - private state and CLI preferences
+        run: |
+          python3 -B tests/test-runtime-state.py
+          python3 -B tests/test-cli-config.py
+
       # ── Nix flake build ────────────────────────────────────
       - name: Build Nix flake package
         run: |
@@ -96,6 +101,8 @@ jobs:
             lib/render-template.sh \
             lib/contain-watcher.sh \
             lib/contain-commit.sh \
+            lib/contain-runtime-state.sh \
+            lib/contain-cli-config-seed.sh \
             container/entrypoint.sh
 
       # ── Dummy OpenCode config ──────────────────────────────

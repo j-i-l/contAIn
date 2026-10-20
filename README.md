@@ -677,6 +677,27 @@ After `/connect`, the server reloads providers automatically. Alternatively,
 provide an OpenCode Go key through `OPENCODE_API_KEY` (on NixOS:
 `services.contain.opencode.envFiles`).
 
+### CLI/TUI Preferences (NixOS)
+
+OpenCode v2.1 uses `cli.json` for CLI/TUI preferences, separate from the
+server's `opencode.json`. contAIn seeds it under
+`<stateRoot>/config/cli.json` with agent ownership and mode `0600`:
+
+```nix
+services.contain.opencode.cliSettings = {
+  session.tps = true;
+};
+```
+
+Average tokens per second (`tok/s`) in the assistant-turn summary is enabled
+by default, matching OpenCode v2.1. Set `session.tps = false` to disable it.
+This applies to the in-container TUI, not the Neovim plugin. Settings are
+merged before container startup: declarative keys win, unrelated runtime
+preferences survive. Values must be non-secret (the seed enters the Nix
+store). Existing `cli.json` must be a strict JSON object; comments, trailing
+commas, invalid JSON, and symlink destinations fail safely without replacing
+the file. Reopen the TUI after applying a preference change.
+
 ### Server Authentication (OpenCode v2)
 
 OpenCode v2's `serve` **always requires authentication**: with no password
