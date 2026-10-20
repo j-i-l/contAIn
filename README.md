@@ -653,10 +653,25 @@ First startup copies legacy config/data/state from the primary user's home,
 including SQLite sidecars. The old container and watcher must be stopped;
 otherwise migration fails closed. Legacy sources remain unchanged, and a
 restricted independent recovery copy is retained at
-`<stateRoot>.legacy-backup`. Interrupted migrations, existing uninitialized
-destinations, symlinks, and special files require operator review. The
+`<stateRoot>.legacy-backup`. A real interrupted `<stateRoot>.migrating`
+directory is moved into a fresh private `<stateRoot>.interrupted.XXXXXXXX/state`
+archive, then migration copies the quiescent sources again. Existing
+uninitialized final destinations and backups are never overwritten. Relative
+symlinks (such as `node_modules/.bin` entries) are preserved only if they fully
+resolve inside the same config/data/state tree. Absolute, dangling, cyclic,
+escaping links and special files require operator review. Ownership changes
+do not dereference symlinks; permission changes visit regular files/directories
+only. The
 preparation runs only in stage 2, never in initrd activation. The shell-based
 installer still uses its legacy home-directory layout.
+
+For a declarative maintenance generation, mask the container, watcher, proxy
+service/socket **and** `contain-opencode-state` and
+`contain-opencode-config-seed`. Also mask any consumer-provided seed services
+that require preparation (for example a legacy auth seed). Otherwise switching
+to maintenance may restart a seed and inadvertently trigger migration. Inspect
+the built units' final symlink targets (`/dev/null`) before applying maintenance.
+Verify the watcher/container are inactive before applying the normal generation.
 
 After `/connect`, the server reloads providers automatically. Alternatively,
 provide an OpenCode Go key through `OPENCODE_API_KEY` (on NixOS:

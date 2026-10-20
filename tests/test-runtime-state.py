@@ -50,10 +50,84 @@ class RuntimeStateTests(unittest.TestCase):
         self.root.mkdir(parents=True)
         self.assertNotEqual(self.migrate().returncode, 0)
 
-    def test_refuses_interrupted_migration(self):
-        Path(str(self.root) + ".migrating").mkdir(parents=True)
+    def test_archives_interrupted_migration_and_recopies_sources(self):
+        staging = Path(str(self.root) + ".migrating")
+        staging.mkdir(parents=True)
+        (staging / "partial").write_text("partial copy")
+        result = self.migrate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        archives = list(self.root.parent.glob("opencode.interrupted.*"))
+        self.assertEqual(len(archives), 1)
+        self.assertEqual(archives[0].stat().st_mode & 0o777, 0o700)
+        self.assertEqual((archives[0] / "state/partial").read_text(), "partial copy")
+        self.assertEqual((self.root / "data/opencode.db").read_text(), "retained")
+        self.assertFalse((self.root / "partial").exists())
+
+    def test_preserves_internal_package_links_and_executable_modes(self):
+        modules = self.home / ".config/opencode/node_modules"
+        (modules / ".bin").mkdir(parents=True)
+        (modules / "yaml").mkdir()
+        executable = modules / "yaml/bin.mjs"
+        executable.write_text("executable")
+        executable.chmod(0o755)
+        (modules / ".bin/yaml").symlink_to("../yaml/bin.mjs")
+        result = self.migrate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        link = self.root / "config/node_modules/.bin/yaml"
+        self.assertEqual(os.readlink(link), "../yaml/bin.mjs")
+        self.assertEqual(link.read_text(), "executable")
+        self.assertEqual(link.stat().st_mode & 0o777, 0o700)
+        backup = Path(str(self.root) + ".legacy-backup")
+        self.assertEqual((backup / "config/node_modules/.bin/yaml").read_text(), "executable")
+
+    def test_rejects_relative_escape_and_preserves_outside_permissions(self):
+        outside = self.root.parent / "outside"
+        outside.parent.mkdir(parents=True)
+        outside.write_text("private")
+        outside.chmod(0o640)
+        (self.data / "link").symlink_to("../../outside")
         self.assertNotEqual(self.migrate().returncode, 0)
-        self.assertFalse(self.root.exists())
+        self.assertEqual(outside.stat().st_mode & 0o777, 0o640)
+
+    def test_rejects_absolute_links_even_with_internal_target(self):
+        (self.data / "link").symlink_to(self.data / "opencode.db")
+        self.assertNotEqual(self.migrate().returncode, 0)
+        self.assertEqual((self.data / "opencode.db").stat().st_mode & 0o777, 0o660)
+
+    def test_rejects_cross_tree_links(self):
+        config = self.home / ".config/opencode"
+        config.mkdir(parents=True)
+        (config / "link").symlink_to("../data/opencode.db")
+        result = self.migrate()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("escapes its tree", result.stderr)
+
+    def test_preserves_internal_link_chain(self):
+        (self.data / "first").symlink_to("second")
+        (self.data / "second").symlink_to("opencode.db")
+        result = self.migrate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "data/first").read_text(), "retained")
+
+    def test_rejects_dangling_links_cycles_and_special_files(self):
+        for kind in ("dangling", "cycle", "fifo"):
+            with self.subTest(kind=kind):
+                link = self.data / "link"
+                if kind == "fifo":
+                    os.mkfifo(link)
+                else:
+                    link.symlink_to("missing" if kind == "dangling" else "link")
+                self.assertNotEqual(self.migrate().returncode, 0)
+                self.assertFalse((self.root / ".ready").exists())
+                link.unlink()
+
+    def test_refuses_symlink_staging_directory(self):
+        self.root.parent.mkdir(parents=True)
+        staging = Path(str(self.root) + ".migrating")
+        staging.symlink_to(self.data)
+        self.assertNotEqual(self.migrate().returncode, 0)
+        self.assertTrue(staging.is_symlink())
+        self.assertEqual((self.data / "opencode.db").stat().st_mode & 0o777, 0o660)
 
     def test_initializes_without_legacy_state(self):
         for file in self.data.iterdir():

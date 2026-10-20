@@ -659,7 +659,6 @@ in {
 
     systemd.services.contain-opencode-state = {
       description = "Prepare private contAIn OpenCode state";
-      after = [ "network-online.target" ];
       before = [ "contain.service" "contain-opencode-config-seed.service" ];
       requiredBy = [ "contain.service" ];
       unitConfig.RequiresMountsFor = [ cfg.opencode.stateRoot cfg.primaryHome ];
