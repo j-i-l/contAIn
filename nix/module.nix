@@ -126,13 +126,13 @@ let
     # registration and helper files here). The sandbox policy is merged into
     # ~/.config/opencode/opencode.json by contain-opencode-config-seed, so no
     # separate read-only OPENCODE_CONFIG mount is used.
-    Volume=${cfg.primaryHome}/.config/opencode:/home/agent/.config/opencode:rw
+    Volume=${cfg.opencode.stateRoot}/config:/home/agent/.config/opencode:rw
 
     # OpenCode data directory (read-write) — database, auth, logs, snapshots, etc.
-    Volume=${cfg.primaryHome}/.local/share/opencode:/home/agent/.local/share/opencode:rw
+    Volume=${cfg.opencode.stateRoot}/data:/home/agent/.local/share/opencode:rw
 
     # OpenCode state directory (read-write) — model preferences, prompt history, etc.
-    Volume=${cfg.primaryHome}/.local/state/opencode:/home/agent/.local/state/opencode:rw
+    Volume=${cfg.opencode.stateRoot}/state:/home/agent/.local/state/opencode:rw
 
     # ---------- Environment ----------
     # Stable OpenCode server password (v2 always requires auth). When the
@@ -286,6 +286,12 @@ let
 
 in {
   options.services.contain = {
+    opencode.stateRoot = lib.mkOption {
+      type = lib.types.strMatching "/.+";
+      default = "/var/lib/contain/opencode";
+      description = "Private OpenCode service state. Persist this path on ephemeral-root hosts.";
+    };
+
 
     enable = lib.mkEnableOption "contain sandboxed AI coding agent";
 
@@ -519,32 +525,7 @@ in {
           chown ${cfg.primaryUser}: "$CONFIG_DIR/config.json"
           chmod 640 "$CONFIG_DIR/config.json"
 
-          # The opencode sandbox policy is no longer copied here: it is merged
-          # into ~/.config/opencode/opencode.json by the
-          # contain-opencode-config-seed systemd unit.
-
-          # OpenCode config, data & state directories
-          for dir in \
-            "${cfg.primaryHome}/.config/opencode" \
-            "${cfg.primaryHome}/.local/share/opencode" \
-            "${cfg.primaryHome}/.local/state/opencode"; do
-            mkdir -p "$dir"
-            chown ${cfg.primaryUser}: "$dir"
-            chmod 770 "$dir"
-          done
-
-          # Fix ownership and permissions on existing data/state files.
-          # This handles upgrades from older setups where files may have been
-          # created with wrong UID/GID or restrictive permissions. The v2
-          # database (opencode.db) is included on purpose: OpenCode persists
-          # /connect credentials to it, so it must be agent- (group-) writable.
-          for dir in \
-            "${cfg.primaryHome}/.local/share/opencode" \
-            "${cfg.primaryHome}/.local/state/opencode"; do
-            ${pkgs.findutils}/bin/find "$dir" -not -group $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) -exec ${pkgs.coreutils}/bin/chgrp $(${pkgs.coreutils}/bin/id -gn ${cfg.primaryUser}) {} + 2>/dev/null || true
-            ${pkgs.findutils}/bin/find "$dir" -type f -not -perm -g+w -exec chmod g+w {} + 2>/dev/null || true
-            ${pkgs.findutils}/bin/find "$dir" -type d -not -perm -g+wx -exec chmod g+wx {} + 2>/dev/null || true
-          done
+          # Private OpenCode state is prepared only by the stage-2 service.
         '';
         deps = [ "users" ];
       };
@@ -676,6 +657,35 @@ in {
       '';
     };
 
+    systemd.services.contain-opencode-state = {
+      description = "Prepare private contAIn OpenCode state";
+      after = [ "network-online.target" ];
+      before = [ "contain.service" "contain-opencode-config-seed.service" ];
+      requiredBy = [ "contain.service" ];
+      unitConfig.RequiresMountsFor = [ cfg.opencode.stateRoot cfg.primaryHome ];
+      path = [ pkgs.coreutils pkgs.findutils pkgs.podman pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        UMask = "0077";
+      };
+      script = ''
+        set -euo pipefail
+        root=${lib.escapeShellArg cfg.opencode.stateRoot}
+        if [ ! -f "$root/.ready" ]; then
+          # Fail closed: a live old server/watcher could invalidate the copy.
+          running="$(podman ps --filter name=^contain$ --format '{{.Names}}')"
+          if [ -n "$running" ] || systemctl is-active --quiet contain-watcher.service; then
+            echo "contain: migration requires the old container and watcher to be stopped" >&2
+            exit 1
+          fi
+        fi
+        ${pkgs.bash}/bin/bash ${../lib/contain-runtime-state.sh} \
+          "$root" ${lib.escapeShellArg cfg.primaryHome} \
+          "$(id -u ${cfg.agent.user})" "$(id -g ${cfg.primaryUser})"
+      '';
+    };
+
     # -- OpenCode config seed --
     # Deploy the OpenCode config as an agent-writable file: OpenCode persists
     # runtime changes (provider registration from /connect, helper files)
@@ -690,6 +700,8 @@ in {
     # providers, …) still merge normally.
     systemd.services.contain-opencode-config-seed = {
       description = "Seed contAIn OpenCode opencode.json";
+      requires = [ "contain-opencode-state.service" ];
+      after = [ "contain-opencode-state.service" ];
       before = [ "contain.service" ];
       requiredBy = [ "contain.service" ];
 
@@ -707,11 +719,11 @@ in {
         set -euo pipefail
 
         policy=${opencodePolicy}
-        dir="${cfg.primaryHome}/.config/opencode"
+        dir="${cfg.opencode.stateRoot}/config"
         dest="$dir/opencode.json"
 
         primary_group="$(id -gn ${cfg.primaryUser})"
-        install -d -o ${cfg.primaryUser} -g "$primary_group" -m 0770 "$dir"
+        install -d -o ${cfg.agent.user} -g "$primary_group" -m 0700 "$dir"
 
         inputs=()
         if [ -s "$dest" ] && jq -e . "$dest" > /dev/null 2>&1; then
@@ -729,8 +741,8 @@ in {
 
         tmp="$(mktemp "$dir/.opencode.json.XXXXXX")"
         jq -s 'reduce .[] as $x ({}; . * $x)' "''${inputs[@]}" > "$tmp"
-        chown ${cfg.primaryUser}:"$primary_group" "$tmp"
-        chmod 0660 "$tmp"
+        chown ${cfg.agent.user}:"$primary_group" "$tmp"
+        chmod 0600 "$tmp"
         mv -f "$tmp" "$dest"
       '';
     };
@@ -786,10 +798,10 @@ in {
           cfg.primaryUser
           cfg.agent.user
         ] ++ cfg.projectPaths ++ [
-          "--runtime"
-          "${cfg.primaryHome}/.config/opencode"
-          "${cfg.primaryHome}/.local/share/opencode"
-          "${cfg.primaryHome}/.local/state/opencode"
+          "--exclude"
+          cfg.opencode.stateRoot
+          "${cfg.opencode.stateRoot}.migrating"
+          "${cfg.opencode.stateRoot}.legacy-backup"
         ]);
         Restart    = "on-failure";
         RestartSec = 5;

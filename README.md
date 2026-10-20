@@ -639,7 +639,28 @@ To expose the server to other machines (not recommended), change `host` to `0.0.
 
 ### Credential Storage
 
-OpenCode v2 stores provider credentials in its database (`~/.local/share/opencode/opencode.db`) on the host. The `~/.local/share/opencode/` and `~/.local/state/opencode/` directories are mounted read-write into the container, so `/connect` can save credentials directly. After authentication, the server reloads providers automatically — no container restart is needed. Alternatively, an OpenCode Go key can be provided declaratively via the `OPENCODE_API_KEY` environment variable (on NixOS: `services.contain.opencode.envFiles`).
+OpenCode v2 stores provider credentials in its database. On NixOS, private
+config/data/state live under `services.contain.opencode.stateRoot` (default
+`/var/lib/contain/opencode`), mounted at the usual OpenCode paths inside the
+container. Persist this directory on ephemeral-root hosts. Files belong to
+the agent UID; the database and WAL/SHM sidecars use `0600`. The project
+ownership watcher never normalizes private runtime permissions. Project files
+created by the agent are reassigned to the primary user and shared container
+GID, with ordinary files `0660`, executable bits retained, and directories
+setgid `2770`. Existing human-owned files and `.git` metadata are left alone.
+
+First startup copies legacy config/data/state from the primary user's home,
+including SQLite sidecars. The old container and watcher must be stopped;
+otherwise migration fails closed. Legacy sources remain unchanged, and a
+restricted independent recovery copy is retained at
+`<stateRoot>.legacy-backup`. Interrupted migrations, existing uninitialized
+destinations, symlinks, and special files require operator review. The
+preparation runs only in stage 2, never in initrd activation. The shell-based
+installer still uses its legacy home-directory layout.
+
+After `/connect`, the server reloads providers automatically. Alternatively,
+provide an OpenCode Go key through `OPENCODE_API_KEY` (on NixOS:
+`services.contain.opencode.envFiles`).
 
 ### Server Authentication (OpenCode v2)
 
